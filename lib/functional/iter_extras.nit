@@ -45,6 +45,13 @@ class StringCollector
 end
 
 redef interface Iterator[E]
+
+        # Syntax shortcut
+        fun iter: Iterator[E]
+        do
+                return iterator
+        end
+
         # Applies a function to every elements
         fun map(f: Func1[E,Object]): MapIter[E,Object]
         do
