@@ -26,6 +26,10 @@ end
 fun generate_functypes(n: Int, writer: Writer) 
 do
         writer.write("module functional")
+    
+        writer.write("\ninterface Func")
+        writer.write("\nend")
+
         writer.write("\nclass Unit")
         writer.write("\nend")     
         for i in [0..n[ do
@@ -37,7 +41,7 @@ do
                         writer.write("\ninterface Func" + i.to_s)
                 end
                 writer.write("[" + intercalate(generics, ",") + "]") 
-                
+                writer.write("\n\tsuper Func") 
                 # body\
                 var output = generics.pop
                 for j in [0..generics.length[ do
