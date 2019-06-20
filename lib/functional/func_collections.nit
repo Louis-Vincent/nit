@@ -2,7 +2,6 @@
 module func_collections 
 import functional
 
-
 redef class Array[E]                
         fun for_each(f: Func1[E, Unit])
         do
