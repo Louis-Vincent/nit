@@ -2544,105 +2544,27 @@ redef class ADebugTypeExpr
 end
 
 
-#redef class AFunrefExpr
-#       redef fun accept_typing(v: TypingVisitor)
-#       do
-#                var fun_name = n_qid.n_id.text
-#                #var props = v.modelbuilder.model.get_mproperties_by_name(fun_name)
-#
-#                # top level function are stored in object
-#                var mclass_sys = v.get_mclass(self, "Sys")
-#                if mclass_sys == null then
-#                        v.error(self, "Error: class `Sys` does not exists")
-#                        return
-#                end
-#
-#                var sys_type = mclass_sys.mclass_type
-#                var callsite = v.get_method(self, sys_type, fun_name, false)
-#
-#                if callsite == null then
-#                        v.error(self, "Error: function `{fun_name}`")
-#                        return
-#                end
-#
-#                var msignature = callsite.msignature
-#                var arity = msignature.mparameters.length
-#                var target_func_class = "Func" + arity.to_s
-#                var func_class = v.get_mclass(self, target_func_class)
-#                var unit_class = v.get_mclass(self, "Unit")
-#
-#                if unit_class == null or func_class == null then
-#                        v.error(self, "Error: missing functional types, try : `import functional`")
-#                        return
-#                end
-#
-#                var types_list = new Array[MType]
-#                for param in msignature.mparameters do
-#                        types_list.push(param.mtype)
-#                end
-#                types_list.push(unit_class.mclass_type)
-#
-#                var func_type = func_class.get_mtype(types_list)
-#
-#                mtype = func_type
-#                is_typed = true
-#        end
-#end
+redef class AFunrefExpr
 
-redef class ACallrefExpr
-	redef fun property_name do return n_qid.n_id.text
-	redef fun property_node do return n_qid
-	redef fun compute_raw_arguments do return n_args.to_a
+        redef fun accept_typing(v)
+        do
+                var prop_name = n_qid.n_id.text.escape_to_c
+                var props = v.modelbuilder.model.get_mproperties_by_name(prop_name)
 
-	redef fun accept_typing(v)
-	do
-                super # do the job as if it was a real call
-		var res = callsite.mproperty
-
-                var msignature = callsite.mpropdef.msignature
-                var recv = callsite.recv
-                assert msignature != null
-                var arity = msignature.mparameters.length
-
-                var routine_type_name = "ProcRef"
-                if msignature.return_mtype != null then
-                        routine_type_name = "FunRef"
-                end
-
-                var target_routine_class = "{routine_type_name}{arity}"
-                var routine_mclass = v.get_mclass(self, target_routine_class)
-
-                if routine_mclass == null then
-                        v.error(self, "Error: missing functional types, try : `import functional`")
-                        return
-                end
-
-                var types_list = new Array[MType]
-                for param in msignature.mparameters do
-                        if param.is_vararg then
-                                types_list.push(v.mmodule.array_type(param.mtype))
-                        else
-                                types_list.push(param.mtype)
+                var prop: nullable MMethod = null
+                for p in props do
+                        if p isa MMethod then
+                                prop = p
+                                print p
                         end
                 end
-                if msignature.return_mtype != null then
-                        types_list.push(msignature.return_mtype.as(not null))
+
+                if prop == null then
+                        v.error(self, "Error: function `{prop_name}` does not exists")
                 end
 
-                # Why we need to anchor :
-                #
-                # ~~~~nitish
-                # class A[E]
-                #       def toto(x: E) do print "{x}"
-                # end
-                #
-                # var a = new A[Int]
-                # var f = &a.toto <- without anchor : ProcRef1[E]
-                #               ^--- with anchor : ProcRef[Int]
-                # ~~~~
-                var routine_type = routine_mclass.get_mtype(types_list).anchor_to(v.mmodule, recv.as(MClassType))
-
-                is_typed = true
-		self.mtype = routine_type
-	end
+                self.is_typed = true
+                #print v.modelbuilder.model.mproperties_by_name[]
+                #self.is_typed = true
+        end
 end
