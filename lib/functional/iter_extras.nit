@@ -100,6 +100,13 @@ redef interface Iterator[E]
                 return new FlatMapIter[E](self, f)
         end
 
+        # Generates an `Iterator` whose elements are sorted by the function
+        # passed in argument.
+        fun order_by(f: Fun1[E, Comparable]): OrderedIter[E]
+        do
+                return new OrderedIter[E](self, f)
+        end
+
 end
 
 # Base class for all iterators using functional types.
@@ -208,5 +215,69 @@ class FlatMapIter[E]
                                 buffer = f.call(my_iter.item)
                         end
                 end
+        end
+end
+
+
+class OrderedIter[E]
+        super FunIter[E,E]
+        var f: Fun1[E, Comparable]
+
+        private var sorted_iter: Iterator[E] is noinit
+        private var sorted_arr: Array[E] is noinit
+        redef init
+        do
+                super
+                var cmp = new ComparatorWith[E](f)
+                sorted_arr = my_iter.to_a
+                if sorted_arr.length > 1 then
+                        cmp.quick_sort(sorted_arr, 0, sorted_arr.length - 1)
+                end
+                sorted_iter = sorted_arr.iterator
+        end
+
+
+        redef fun next
+        do
+                sorted_iter.next
+        end
+
+        redef fun item
+        do
+                return sorted_iter.item
+        end
+
+
+        redef fun is_ok
+        do
+                return sorted_iter.is_ok
+        end
+
+        redef fun finish
+        do
+                sorted_iter.finish
+        end
+
+        redef fun to_a
+        do
+                return sorted_arr
+        end
+
+end
+
+# Comparator that use a function provided by the user to compare between elements.
+class ComparatorWith[E]
+        super Comparator
+        redef type COMPARED: E
+
+        var f: Fun1[E, Comparable]
+
+        redef fun compare(a,b)
+        do
+                var x = f.call(a)
+                var y = f.call(b)
+                if x < y then return -1
+                if x > y then return 1
+                return 0
         end
 end

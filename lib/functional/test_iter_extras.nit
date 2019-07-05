@@ -1,7 +1,7 @@
 module test_iter_extras is test
 
-import test_utils
-import func_collections
+private import test_utils
+private import func_collections
 
 # test cases using `iter_extras::Iterator::map`
 class TestMapIter
@@ -138,5 +138,43 @@ class TestFold1Iter
                 var xs = [45,424,11,43,7,5,8,9,1,-100]
                 var actual = xs.iterator.fold1(min_int_fn)
                 assert actual == -100
+        end
+end
+
+# test cases using `iter_extras::Iterator::order_by`
+class TestOrderedIter
+        test
+
+        fun order_empty_list_of_numbers is test do
+                var xs = new Array[Int]
+                var actual = xs.iterator.order_by(id_int).to_a
+                assert actual == xs
+        end
+
+        fun order_list_of_ints is test do
+                var xs = [5,4,3,2,1]
+                var actual = xs.iterator.order_by(id_int).to_a
+                var expected = [1,2,3,4,5]
+                assert actual == expected
+        end
+
+        fun order_singleton_list_of_ints is test do
+                var xs = [1]
+                var actual = xs.iterator.order_by(id_int).to_a
+                assert actual == xs
+        end
+
+        fun order_list_of_strings_by_alphabetical_order is test do
+                var xs = ["louis", "florian", "alexis", "jean", "alexandre"]
+                var actual = xs.iterator.order_by(id_str).to_a
+                var expected = ["alexandre", "alexis", "florian", "jean", "louis"]
+                assert actual == expected
+        end
+
+        fun order_list_of_strings_by_length is test do
+                var xs = ["louis", "florian", "alexis", "jean", "alexandre"]
+                var actual = xs.iterator.order_by(str_len).to_a
+                var expected = ["jean", "louis", "alexis", "florian", "alexandre"]
+                assert actual == expected
         end
 end
