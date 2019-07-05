@@ -264,7 +264,13 @@ class FilterIter[E]
 
         redef fun next
         do
+                assert is_ok
+                return my_iter.item
+        end
 
+
+        redef fun next
+        do
                 loop
                         my_iter.next
                         if not is_ok then
