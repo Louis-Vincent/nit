@@ -2,7 +2,7 @@ import functional_types
 class SumFn
         super Fun2[Int,Int,Int]
 
-        redef fun call(x: Int, y: Int): Int
+        redef fun call(x, y)
         do
                 return x + y
         end
@@ -11,7 +11,7 @@ end
 class MinFn[E: Comparable]
         super Fun2[E,E,E]
 
-        redef fun call(x: E, y: E): E
+        redef fun call(x, y)
         do
                 if x < y then
                         return x
@@ -25,7 +25,7 @@ class InitArrayFn[E]
 
         var initial_val: nullable E
 
-        redef fun call: Array[E]
+        redef fun call
         do
                 var xs = new Array[E]
                 if initial_val != null then
@@ -38,7 +38,7 @@ end
 class SnakeCaseFn
         super Fun1[String,String]
 
-        redef fun call(x: String): String
+        redef fun call(x)
         do
                 return x.to_snake_case
         end
@@ -47,7 +47,7 @@ end
 class UpperCaseFn
         super Fun1[String, String]
 
-        redef fun call(x: String): String
+        redef fun call(x)
         do
                 return x.to_upper
         end
@@ -56,7 +56,7 @@ end
 class IsLetterFn
         super Fun1[Char, Bool]
 
-        redef fun call(c: Char): Bool
+        redef fun call(c)
         do
                 return c.is_letter
         end
@@ -65,7 +65,7 @@ end
 class AddOneFn
         super Fun1[Int,Int]
 
-        redef fun call(x: Int): Int
+        redef fun call(x)
         do
                 return x + 1
         end
@@ -74,7 +74,7 @@ end
 class CharsFn
         super Fun1[String, Iterator[Char]]
 
-        redef fun call(str): Iterator[Char]
+        redef fun call(str)
         do
                 return str.chars.iterator
         end
@@ -83,9 +83,25 @@ end
 class LowerThanFn
         super Fun1[Int, Bool]
         var target: Int
-        redef fun call(x): Bool
+        redef fun call(x)
         do
                 return x < target
+        end
+end
+
+class IdFn[E]
+        super Fun1[E,E]
+        redef fun call(x)
+        do
+                return x
+        end
+end
+
+class StrLenFn
+        super Fun1[String,Int]
+        redef fun call(x)
+        do
+                return x.length
         end
 end
 
@@ -134,4 +150,21 @@ end
 fun lower_than_fn(x: Int): LowerThanFn
 do
         return new LowerThanFn(x)
+end
+
+
+fun id_int: IdFn[Int]
+do
+        return new IdFn[Int]
+end
+
+fun id_str: IdFn[String]
+do
+        return new IdFn[String]
+end
+
+
+fun str_len: StrLenFn
+do
+        return new StrLenFn
 end
