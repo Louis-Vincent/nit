@@ -2456,6 +2456,15 @@ class ACallReassignExpr
 	super ASendReassignFormExpr
 end
 
+# A reference to a method with a captured receiver. eg. `&x.foo` or just `&foo` is self is captured.
+class ACallrefExpr
+       super ACallFormExpr
+
+       # The `&` operator
+       var n_amp: TAmp is writable, noinit
+end
+
+
 # A call to `super`. OR a call of a super-constructor
 class ASuperExpr
 	super AExpr
