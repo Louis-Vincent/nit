@@ -104,12 +104,18 @@ class LoaderConfig
 
 	# Github tokens used to access data.
 	var tokens: Array[String] is lazy do
-		var arr = opt_tokens.value
-		if arr.is_empty then
-			var iarr = ini.at("tokens")
-			if iarr != null then arr = iarr.values.to_a
+		var opt_tokens = self.opt_tokens.value
+		if opt_tokens.not_empty then return opt_tokens
+
+		var res = new Array[String]
+		var ini_tokens = ini.section("tokens")
+		if ini_tokens == null then return res
+
+		for token in ini_tokens.values do
+			if token == null then continue
+			res.add token
 		end
-		return arr or else new Array[String]
+		return res
 	end
 
 	# Github tokens wallet
@@ -128,15 +134,19 @@ class LoaderConfig
 	# Verbosity level (the higher the more verbose)
 	fun verbose_level: Int do
 		var opt = opt_start.value
-		if opt > 0 then return opt
+		if opt > 0 then
+			return info_level
+		end
 		var v = ini["loader.verbose"]
-		if v != null then return v.to_i
-		return 4
+		if v != null and v.to_i > 0 then
+			return info_level
+		end
+		return warn_level
 	end
 
 	# Logger used to print things
-	var logger: ConsoleLog is lazy do
-		var logger = new ConsoleLog
+	var logger: PopLogger is lazy do
+		var logger = new PopLogger
 		logger.level = verbose_level
 		return logger
 	end
@@ -412,7 +422,7 @@ class Loader
 	end
 
 	# Logger shortcut
-	fun log: ConsoleLog do return config.logger
+	fun log: PopLogger do return config.logger
 
 	# Display a error and exit
 	fun error(msg: String) do
