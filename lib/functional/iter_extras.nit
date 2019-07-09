@@ -20,25 +20,53 @@ import cartesian
 redef interface Iterator[E]
 
         # Applies a function to every elements
+        #
+        # ~~~~nitish
+        # fun add(x: Int): Int do return x + 1
+        #
+        # var f = &add
+        # var xs = [1,2,3,4,5]
+        # var actual = xs.iterator.map(f).to_a
+        # assert actual == [2,3,4,5,6]
+        # ~~~~
         fun map(f: Fun1[E,Object]): MapIter[E,Object]
         do
                 return new MapIter[E,Object](self, f)
         end
 
-        # Iterator that gives the current count and element
+        # Iterator that gives the current count and element as a pair
         fun enumerate: EnumerateIter[E]
         do
                 return new EnumerateIter[E](self)
         end
 
         # Iterator that filters elements by a predicate
+        #
+        # ~~~~nitish
+        # fun lt10(x: Int): Bool do return x < 10
+        #
+        # var pred = &lt10
+        # var xs = [1..20]
+        # var actual = xs.iterator.filter(pred).to_a
+        # assert actual == [1..9].to_a
+        # ~~~~
         fun filter(pred: Fun1[E,Bool]): FilterIter[E]
         do
                 return new FilterIter[E](self,pred)
         end
 
 
-        # Checks if one element respects a predicate in the iterator
+        # Checks if at least one element respects a predicate
+        #
+        # ~~~~nitish
+        # fun eq10(x: Int): Bool do return x == 10
+        #
+        # var pred = &eq10
+        # var xs = [1,2,5,7,9,10,44]
+        # assert xs.iterator.any(pred)
+        # var ys = []
+        # assert not ys.iterator.any(pred)
+        # ~~~~
         fun any(pred: Fun1[E,Bool]): Bool
         do
                 for x in self do
@@ -49,7 +77,15 @@ redef interface Iterator[E]
                 return false
         end
 
-        # Checks if all elements respect a predicate in the iterator
+        # Checks if all elements respect a predicate
+        #
+        # ~~~~nitish
+        # fun lt10(x: Int): Bool do return x < 10
+        #
+        # var pred = &lt10
+        # var xs = [1..9]
+        # assert xs.iterator.all(pred)
+        # ~~~~
         fun all(pred: Fun1[E,Bool]): Bool
         do
                 for x in self do
@@ -62,6 +98,13 @@ redef interface Iterator[E]
 
 
         # Folds an iterator from the left
+        #
+        # ~~~~nitish
+        # fun adder(x: Int, y: Int): Int do return x + y
+        #
+        # var xs = [1..10]
+        # assert xs.iterator.fold(0, &adder) == 55
+        # ~~~~
         fun fold(acc: Object, f: Fun2[Object, E, Object]): Object
         do
                 for x in self do
@@ -73,6 +116,17 @@ redef interface Iterator[E]
         # Folds and apply two element at a time
         #
         # requires at least 2 element in the iterator
+        #
+        # ~~~~nitish
+        # fun min_int(x: Int, y: Int): Int
+        # do
+        #       if x < y then return x
+        #       return y
+        # end
+        #
+        # var xs = [100,423,51,1,-19,55,999,-18]
+        # assert xs.iterator.fold1(&min_int) == -19
+        # ~~~~
         fun fold1(f: Fun2[E,E,E]): E
         do
                 var a1 = item
@@ -87,6 +141,20 @@ redef interface Iterator[E]
         end
 
         # Apply a mutation function over all elements
+        #
+        # ~~~~nitish
+        # class Person
+        #       var age: Int
+        #       def incr_age
+        #       do
+        #               age += 1
+        #       end
+        # end
+        #
+        # var ps = [new Persone(1), new Person(2), new Person(3)]
+        # var ages = ps.iterator.for_each(&Person::incr_age).map(&Person::age).to_a
+        # assert ages == [2,3,4]
+        # ~~~~
         fun for_each(f: Proc1[E])
         do
                 for x in self do
@@ -95,6 +163,15 @@ redef interface Iterator[E]
         end
 
         # Maps every element to a nested structure then flattens it
+        #
+        # ~~~~nitish
+        # fun chars_fn(s: String): Iterator[Char]
+        # do
+        #       return s.chars.iterator
+        # end
+        # var cs = ["aaa","bbb","ccc"]
+        # assert cs.iterator.flat_map(&chars_fn).to_a.join == "aaabbbccc"
+        # ~~~~
         fun flat_map(f: Fun1[E, Iterator[Object]]): FlatMapIter[E]
         do
                 return new FlatMapIter[E](self, f)
@@ -102,6 +179,16 @@ redef interface Iterator[E]
 
         # Generates an `Iterator` whose elements are sorted by the function
         # passed in argument.
+        #
+        # ~~~~nitish
+        # class Person
+        #       var name: String
+        # end
+        #
+        # var ps = [new Person("Turing"), new Person("Curry"), new Person("Alfredo")]
+        # var ordered_names = ps.iterator.order_by(&Person::name).map(&Person::name).to_a
+        # assert ordered_names == ["Alfredo", "Curry", "Turing"]
+        # ~~~~
         fun order_by(f: Fun1[E, Comparable]): OrderedIter[E]
         do
                 return new OrderedIter[E](self, f)
