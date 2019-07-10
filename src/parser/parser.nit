@@ -675,10 +675,6 @@ redef class Parser
 		reduce_table.add new ReduceAction402(143)
 		reduce_table.add new ReduceAction403(143)
 		reduce_table.add new ReduceAction165(143)
-		reduce_table.add new ReduceAction389(143)
-		reduce_table.add new ReduceAction390(143)
-		reduce_table.add new ReduceAction391(143)
-		reduce_table.add new ReduceAction392(143)
 		reduce_table.add new ReduceAction165(143)
 		reduce_table.add new ReduceAction149(144)
 		reduce_table.add new ReduceAction150(144)
@@ -11169,104 +11165,6 @@ private class ReduceAction403
 	end
 end
 private class ReduceAction406
-	super ReduceAction
-	redef fun action(p: Parser)
-	do
-					var node_list: nullable Object = null
-					var nodearraylist3 = p.pop
-					var nodearraylist2 = p.pop
-					var nodearraylist1 = p.pop
-					var tampnode2 = nodearraylist1
-					assert tampnode2 isa nullable TAmp
-					var listnode5 = new Array[Object]
-					var tclassidnode6 = nodearraylist2
-					assert tclassidnode6 isa nullable TClassid
-					var pqualifiednode4: nullable AQualified = new AQualified.init_aqualified(
-						listnode5,
-						tclassidnode6
-					)
-					var tidnode7 = nodearraylist3
-					assert tidnode7 isa nullable TId
-					var pqidnode3: nullable AQid = new AQid.init_aqid(
-						pqualifiednode4,
-						tidnode7
-					)
-					var pexprnode1: nullable AFunrefExpr = new AFunrefExpr.init_afunrefexpr(
-						tampnode2,
-						pqidnode3
-					)
-					node_list = pexprnode1
-					p.push(p.go_to(_goto), node_list)
-	end
-end
-private class ReduceAction391
-	super ReduceAction
-	redef fun action(p: Parser)
-	do
-					var node_list: nullable Object = null
-					var nodearraylist4 = p.pop
-					var nodearraylist3 = p.pop
-					var nodearraylist2 = p.pop
-					var nodearraylist1 = p.pop
-					var tampnode2 = nodearraylist1
-					assert tampnode2 isa nullable TAmp
-					var listnode6 = new Array[Object]
-					var listnode5 = nodearraylist2
-					assert listnode5 isa Array[Object]
-					listnode6 = concat(listnode6, listnode5)
-					var tclassidnode7 = nodearraylist3
-					assert tclassidnode7 isa nullable TClassid
-					var pqualifiednode4: nullable AQualified = new AQualified.init_aqualified(
-						listnode6,
-						tclassidnode7
-					)
-					var tidnode8 = nodearraylist4
-					assert tidnode8 isa nullable TId
-					var pqidnode3: nullable AQid = new AQid.init_aqid(
-						pqualifiednode4,
-						tidnode8
-					)
-					var pexprnode1: nullable AFunrefExpr = new AFunrefExpr.init_afunrefexpr(
-						tampnode2,
-						pqidnode3
-					)
-					node_list = pexprnode1
-					p.push(p.go_to(_goto), node_list)
-	end
-end
-private class ReduceAction392
-	super ReduceAction
-	redef fun action(p: Parser)
-	do
-					var node_list: nullable Object = null
-					var nodearraylist3 = p.pop
-					var nodearraylist2 = p.pop
-					var nodearraylist1 = p.pop
-					var tampnode2 = nodearraylist1
-					assert tampnode2 isa nullable TAmp
-					var listnode6 = new Array[Object]
-					var listnode5 = nodearraylist2
-					assert listnode5 isa Array[Object]
-					listnode6 = concat(listnode6, listnode5)
-					var pqualifiednode4: nullable AQualified = new AQualified.init_aqualified(
-						listnode6,
-						null
-					)
-					var tidnode8 = nodearraylist3
-					assert tidnode8 isa nullable TId
-					var pqidnode3: nullable AQid = new AQid.init_aqid(
-						pqualifiednode4,
-						tidnode8
-					)
-					var pexprnode1: nullable AFunrefExpr = new AFunrefExpr.init_afunrefexpr(
-						tampnode2,
-						pqidnode3
-					)
-					node_list = pexprnode1
-					p.push(p.go_to(_goto), node_list)
-	end
-end
-private class ReduceAction394
 	super ReduceAction
 	redef fun action(p: Parser)
 	do
