@@ -461,10 +461,6 @@ redef class Parser
 		reduce_table.add new ReduceAction448(77)
 		reduce_table.add new ReduceAction449(77)
 		reduce_table.add new ReduceAction165(77)
-		reduce_table.add new ReduceAction389(77)
-		reduce_table.add new ReduceAction390(77)
-		reduce_table.add new ReduceAction391(77)
-		reduce_table.add new ReduceAction392(77)
 		reduce_table.add new ReduceAction165(77)
 		reduce_table.add new ReduceAction452(77)
 		reduce_table.add new ReduceAction453(77)
@@ -12138,7 +12134,7 @@ private class ReduceAction354
 					p.push(p.go_to(_goto), node_list)
 	end
 end
-private class ReduceAction355
+private class ReduceAction390
 	super ReduceAction
 	redef fun action(p: Parser)
 	do
@@ -12177,7 +12173,7 @@ private class ReduceAction355
 					p.push(p.go_to(_goto), node_list)
 	end
 end
-private class ReduceAction357
+private class ReduceAction392
 	super ReduceAction
 	redef fun action(p: Parser)
 	do
@@ -12199,7 +12195,36 @@ private class ReduceAction357
 					p.push(p.go_to(_goto), node_list)
 	end
 end
-private class ReduceAction358
+private class ReduceAction393
+	super ReduceAction
+	redef fun action(p: Parser)
+	do
+					var node_list: nullable Object = null
+					var nodearraylist6 = p.pop
+					var nodearraylist5 = p.pop
+					var nodearraylist4 = p.pop
+					var nodearraylist3 = p.pop
+					var nodearraylist2 = p.pop
+					var nodearraylist1 = p.pop
+					var pexprnode3 = nodearraylist1
+					assert pexprnode3 isa nullable AExpr
+					var tquestnode4 = nodearraylist2
+					assert tquestnode4 isa nullable TQuest
+					var pexprnode2: nullable ASafeExpr = new ASafeExpr.init_asafeexpr(
+						pexprnode3,
+						tquestnode4
+					)
+					var tattridnode5 = nodearraylist6
+					assert tattridnode5 isa nullable TAttrid
+					var pexprnode1: nullable AAttrExpr = new AAttrExpr.init_aattrexpr(
+						pexprnode2,
+						tattridnode5
+					)
+					node_list = pexprnode1
+					p.push(p.go_to(_goto), node_list)
+	end
+end
+private class ReduceAction394
 	super ReduceAction
 	redef fun action(p: Parser)
 	do

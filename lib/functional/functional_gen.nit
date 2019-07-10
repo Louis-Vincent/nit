@@ -90,9 +90,9 @@ class FunTypeWriter
                         writer.write("\t")
                 end
                 if i == 0 then
-                        writer.write("\tfun call")
+                        writer.write("fun call")
                 else
-                        writer.write("\tfun call(" + signature + ")")
+                        writer.write("fun call(" + signature + ")")
                 end
                 if with_return and not is_redef then
                         writer.write(": {output}")
