@@ -2537,7 +2537,6 @@ redef class ACallrefExpr
 
                 var msignature = callsite.mpropdef.msignature
                 assert msignature != null
-                debug "signature of callref: {msignature}"
                 var arity = msignature.mparameters.length
                 var routine_type_name = "Proc"
                 if msignature.return_mtype != null then
@@ -2562,8 +2561,6 @@ redef class ACallrefExpr
                 var routine_type = routine_mclass.get_mtype(types_list)
                 
                 is_typed = true
-		# TODO: return a functionnal type
-                debug "type of callref: {routine_type}"
 		self.mtype = routine_type 
 	end
 end
