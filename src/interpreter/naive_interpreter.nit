@@ -2299,18 +2299,8 @@ redef class ACallrefExpr
                 if recv == null then return null
                 assert mtype != null
                 var inst = new CallrefInstance(mtype.as(not null), recv, callsite.as(not null))
+                #fatal(v, "NOT YET IMPLEMENTED intern")
                 return inst
-        end
-end
-
-redef class ACallrefExpr
-        redef fun expr(v)
-        do
-                var recv = v.expr(self.n_expr)
-                if recv == null then return null
-                debug "recv for ACallrefExpr {recv}"
-                fatal(v, "NOT YET IMPLEMENTED intern")
-                return null
         end
 end
 

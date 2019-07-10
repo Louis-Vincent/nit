@@ -261,14 +261,6 @@ class FilterIter[E]
                 return my_iter.item
         end
 
-
-        redef fun next
-        do
-                assert is_ok
-                return my_iter.item
-        end
-
-
         redef fun next
         do
                 loop

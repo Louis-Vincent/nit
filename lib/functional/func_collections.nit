@@ -1,7 +1,3 @@
-module func_collections
-import iter_extras
-
-
 # This file is part of NIT ( http://www.nitlanguage.org ).
 #
 # Copyright 2019-2020 Louis-Vincent Boudreault <lv.boudreault95@gmail.com>
@@ -18,12 +14,16 @@ import iter_extras
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+module func_collections
+import iter_extras
+
 # In place data manipulation inside an hashmap
 #
 # Provides a Monad-like structure to do computation over hashmap entries.
 # Warning: The Entry API is not thread-safe, i.e concurrent entry manipulation
 # might put the Map in a inconsistent state. In multithreading environment, you
 # should use guards before creating an `Entry`.
+
 abstract class Entry[K,V]
         var map: Map[K,V]
         var key: K
