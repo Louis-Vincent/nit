@@ -140,7 +140,7 @@ do
                 var procwriter = new FunTypeWriter("interface", "Proc", ["Proc"], i)
                 procwriter.write(writer)
         end
-        
+
         # universal `FunRef`
         for i in [0..n[ do
                 var generics = gen_generics(i)
@@ -152,7 +152,7 @@ do
                 funrefwriter.annotation = "is intern"
                 funrefwriter.write(writer)
         end
-        
+
         # universal `ProcRef`
         for i in [0..n[ do
                 var zuper = "Proc{i}"

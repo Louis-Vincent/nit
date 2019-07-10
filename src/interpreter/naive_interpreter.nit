@@ -458,18 +458,18 @@ class NaiveInterpreter
 
         # Consumes an iterator of expressions and tries to map each element to
         # its corresponding Instance.
-        # 
+        #
         # If any AExprs doesn't resolve to an Instance, then it returns null.
-        # Otherwise return an array of instances 
+        # Otherwise return an array of instances
         fun aexprs_to_instances(aexprs: Iterator[AExpr]): nullable Array[Instance]
         do
                 var accumulator = new Array[Instance]
-                for aexpr in aexprs do 
+                for aexpr in aexprs do
                         var instance = expr(aexpr)
                         if instance == null then return null
                         accumulator.push(instance)
                 end
-                return accumulator 
+                return accumulator
         end
 
 
@@ -494,7 +494,7 @@ class NaiveInterpreter
 		end
 
 		# Eval in order of arguments, not parameters
-		var exprs = aexprs_to_instances(args.iterator) 
+		var exprs = aexprs_to_instances(args.iterator)
                 if exprs == null then return null
 
 
@@ -2266,7 +2266,7 @@ end
 redef class ACallrefExpr
         redef fun expr(v)
         do
-                var recv = v.expr(self.n_expr) 
+                var recv = v.expr(self.n_expr)
                 if recv == null then return null
                 assert mtype != null
                 var inst = new CallrefInstance(mtype.as(not null), recv, callsite.as(not null))
