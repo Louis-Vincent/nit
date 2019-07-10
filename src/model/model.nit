@@ -297,6 +297,11 @@ redef class MModule
 	# The primitive class `NativeArray`
 	var native_array_class: MClass = self.get_primitive_class("NativeArray") is lazy
 
+        # The primitive class `RoutineRef`
+        var routine_class: MClass = self.get_primitive_class("RoutineRef") is lazy
+
+        var routine_type: MClassType do return routine_class.get_mtype([])
+
 	# The primitive type `Sys`, the main type of the program, if any
 	fun sys_type: nullable MClassType
 	do
@@ -2692,7 +2697,7 @@ class MClassKind
 		if other == interface_kind then
 			# everybody can specialize interfaces
 			return true
-		else if self == interface_kind or self == enum_kind then
+                else if self == interface_kind then #or self == enum_kind then
 			# no other case for interfaces and enums
 			return false
 		else if self == subset_kind then
@@ -2704,7 +2709,8 @@ class MClassKind
 			return self == other
 		else
 			# assert self == abstract_kind or self == concrete_kind
-			return other == abstract_kind or other == concrete_kind
+                        # TODO: check if we should really allow enum_kind
+			return other == abstract_kind or other == concrete_kind or other == enum_kind
 		end
 	end
 end
@@ -2712,6 +2718,7 @@ end
 # The class kind `abstract`
 fun abstract_kind: MClassKind do return once new MClassKind("abstract class", false, true, true)
 # The class kind `concrete`
+
 fun concrete_kind: MClassKind do return once new MClassKind("class", false, true, true)
 # The class kind `interface`
 fun interface_kind: MClassKind do return once new MClassKind("interface", false, true, false)

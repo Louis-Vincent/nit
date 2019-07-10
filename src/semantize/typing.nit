@@ -2481,31 +2481,31 @@ end
 
 #redef class AFunrefExpr
 #       redef fun accept_typing(v: TypingVisitor)
-#       do 
+#       do
 #                var fun_name = n_qid.n_id.text
 #                #var props = v.modelbuilder.model.get_mproperties_by_name(fun_name)
-#                
+#
 #                # top level function are stored in object
 #                var mclass_sys = v.get_mclass(self, "Sys")
 #                if mclass_sys == null then
 #                        v.error(self, "Error: class `Sys` does not exists")
 #                        return
 #                end
-#                
+#
 #                var sys_type = mclass_sys.mclass_type
 #                var callsite = v.get_method(self, sys_type, fun_name, false)
-#                
+#
 #                if callsite == null then
 #                        v.error(self, "Error: function `{fun_name}`")
 #                        return
 #                end
-#                
+#
 #                var msignature = callsite.msignature
 #                var arity = msignature.mparameters.length
-#                var target_func_class = "Func" + arity.to_s 
+#                var target_func_class = "Func" + arity.to_s
 #                var func_class = v.get_mclass(self, target_func_class)
-#                var unit_class = v.get_mclass(self, "Unit") 
-#                
+#                var unit_class = v.get_mclass(self, "Unit")
+#
 #                if unit_class == null or func_class == null then
 #                        v.error(self, "Error: missing functional types, try : `import functional`")
 #                        return
@@ -2516,9 +2516,9 @@ end
 #                        types_list.push(param.mtype)
 #                end
 #                types_list.push(unit_class.mclass_type)
-#                
+#
 #                var func_type = func_class.get_mtype(types_list)
-#                
+#
 #                mtype = func_type
 #                is_typed = true
 #        end
@@ -2538,18 +2538,18 @@ redef class ACallrefExpr
                 var msignature = callsite.mpropdef.msignature
                 assert msignature != null
                 var arity = msignature.mparameters.length
-                var routine_type_name = "Proc"
+                var routine_type_name = "ProcRef"
                 if msignature.return_mtype != null then
-                        routine_type_name = "Fun"
+                        routine_type_name = "FunRef"
                 end
-                var target_routine_class = "{routine_type_name}{arity}" 
+                var target_routine_class = "{routine_type_name}{arity}"
                 var routine_mclass = v.get_mclass(self, target_routine_class)
-                
+
                 if routine_mclass == null then
                         v.error(self, "Error: missing functional types, try : `import functional`")
                         return
                 end
-                
+
                 var types_list = new Array[MType]
                 for param in msignature.mparameters do
                         types_list.push(param.mtype)
@@ -2557,10 +2557,10 @@ redef class ACallrefExpr
                 if msignature.return_mtype != null then
                         types_list.push(msignature.return_mtype.as(not null))
                 end
-                
+
                 var routine_type = routine_mclass.get_mtype(types_list)
-                
+
                 is_typed = true
-		self.mtype = routine_type 
+		self.mtype = routine_type
 	end
 end

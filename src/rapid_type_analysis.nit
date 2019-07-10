@@ -701,6 +701,13 @@ redef class ASendExpr
 	end
 end
 
+redef class ACallrefExpr
+        redef fun accept_rapid_type_visitor(v)
+        do
+                super
+                v.add_type(mtype.as(MClassType))
+        end
+end
 
 redef class ASendReassignFormExpr
 	redef fun accept_rapid_type_visitor(v)

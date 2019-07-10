@@ -130,6 +130,9 @@ do
         writer.tabs -= 1
         writer.writeln("end")
 
+        writer.writeln("universal RoutineRef")
+        writer.writeln("end")
+
         for i in [0..n[ do
                 var funwriter = new FunTypeWriter("interface", "Fun", ["Fun"], i)
                 funwriter.with_return = true
@@ -146,7 +149,7 @@ do
                 var generics = gen_generics(i)
                 generics.push("RESULT")
                 var zuper =  "Fun{i}[{generics.join(",")}]"
-                var funrefwriter = new FunTypeWriter("universal", "FunRef", [zuper], i)
+                var funrefwriter = new FunTypeWriter("universal", "FunRef", [zuper, "RoutineRef"], i)
                 funrefwriter.with_return = true
                 funrefwriter.is_redef = true
                 funrefwriter.annotation = "is intern"
@@ -159,7 +162,7 @@ do
                 if i > 0 then
                         zuper =  "Proc{i}[{gen_generics(i).join(",")}]"
                 end
-                var procrefwriter = new FunTypeWriter("universal", "ProcRef", [zuper], i)
+                var procrefwriter = new FunTypeWriter("universal", "ProcRef", [zuper, "RoutineRef"], i)
                 procrefwriter.annotation = "is intern"
                 procrefwriter.is_redef = true
                 procrefwriter.write(writer)

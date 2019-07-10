@@ -1377,6 +1377,13 @@ abstract class AbstractCompilerVisitor
 	# The method is unsafe and is just a direct wrapper for the specific implementation of native arrays
 	fun native_array_set(native_array: RuntimeVariable, index: Int, value: RuntimeVariable) is abstract
 
+        # Instantiate a new routine fat pointer, i.e memorized the original
+        # receiver and callsite info.
+        fun routine_ref_instance(recv: RuntimeVariable, callsite: CallSite, mtype: MClassType): RuntimeVariable is abstract
+
+        # Call the underlying referenced function
+        fun routine_ref_call(routine_ref: RuntimeVariable, args: SequenceRead[RuntimeVariable]): nullable RuntimeVariable is abstract
+
 	# Allocate `size` bytes with the low_level `nit_alloc` C function
 	#
 	# This method can be redefined to inject statistic or tracing code.
@@ -4090,6 +4097,14 @@ redef class ASendExpr
 		var args = v.varargize(callsite.mpropdef, callsite.signaturemap, recv, self.raw_arguments)
 		return v.compile_callsite(callsite, args)
 	end
+end
+
+redef class ACallrefExpr
+        redef fun expr(v)
+        do
+                var recv = v.expr(self.n_expr, null)
+                return v.routine_ref_instance(mtype, recv, callsite.as(not null))
+        end
 end
 
 redef class ASendReassignFormExpr

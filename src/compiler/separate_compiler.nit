@@ -175,6 +175,8 @@ class SeparateCompiler
 			end
 		end
 
+                # Insert function pointer here
+
 		# The main function of the C
 		compiler.new_file("{c_name}.main")
 		compiler.compile_nitni_global_ref_functions
@@ -288,6 +290,7 @@ class SeparateCompiler
 		if color_consts_done.has(m) then return
 		if m isa MEntity then
 			if modelbuilder.toolcontext.opt_inline_coloring_numbers.value then
+                var mtype = mmodule.routine-type
 				self.provide_declaration(m.const_color, "#define {m.const_color} {color}")
 			else if not modelbuilder.toolcontext.opt_colors_are_symbols.value or not v.compiler.target_platform.supports_linker_script then
 				self.provide_declaration(m.const_color, "extern const int {m.const_color};")
@@ -935,6 +938,31 @@ class SeparateCompiler
 			v.require_declaration("class_{c_name}")
 			v.add("{res}->class = &class_{c_name};")
 			v.add("{res}->length = length;")
+			v.add("return (val*){res};")
+			v.add("\}")
+			return
+                else if mclass.name == "RoutineRef" then
+                        self.header.add_decl("struct instance_{c_name} \{")
+			self.header.add_decl("const struct type *type;")
+			self.header.add_decl("const struct class *class;")
+			self.header.add_decl("val* recv")
+                        self.header.add_decl("nitmethod_t method"
+			self.header.add_decl("\};")
+
+                	#Build NEW
+			self.provide_declaration("NEW_{c_name}", "{mtype.ctype} NEW_{c_name}(val* recv, nitmethod_t method, const struct type* type);")
+			v.add_decl("/* allocate {mtype} */")
+			v.add_decl("{mtype.ctype} NEW_{c_name}(val* recv, nitmethod_t method, const struct type* type)\{")
+			var res = v.get_name("self")
+			v.add_decl("struct instance_{c_name} *{res};")
+			var alloc = v.nit_alloc("sizeof(struct instance_{c_name})", mclass.full_name)
+			v.add("{res} = {alloc};")
+			v.add("{res}->type = type;")
+			hardening_live_type(v, "type")
+			v.require_declaration("class_{c_name}")
+			v.add("{res}->class = &class_{c_name};")
+			v.add("{res}->recv = recv;")
+                        v.add("{res}->method = method;")
 			v.add("return (val*){res};")
 			v.add("\}")
 			return
@@ -2148,6 +2176,22 @@ class SeparateCompilerVisitor
 		var recv = "((struct instance_{nclass.c_name}*){nat})->values"
 		self.add("{recv}[{i}]={val};")
 	end
+
+        redef fun routine_ref_instance(recv, callsite, mclasstype)
+        do
+                self.require_declaration("NEW_core__RoutineRef")
+                self.require_declration("class_{recv.mclass.c_name}")
+                callsite.rev
+                return self.new_expr("NEW_core__RoutineRef({recv}, ,&type_{mclasstype.c_name})", mtype)
+        end
+
+        redef fun routine_ref_call(routine, args)
+        do
+                var underlying_routine = "((struct instance_core__RoutineRef){routine})->method"
+                var res = self.new_expr("(*{underlying_routine})({args})"
+
+                return null
+        end
 
 	fun link_unresolved_type(mclassdef: MClassDef, mtype: MType) do
 		assert mtype.need_anchor
