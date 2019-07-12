@@ -942,28 +942,29 @@ class SeparateCompiler
 			return
                 else if mclass.name == "RoutineRef" then
                         self.header.add_decl("struct instance_{c_name} \{")
-			self.header.add_decl("const struct type *type;")
-			self.header.add_decl("const struct class *class;")
-			self.header.add_decl("val* recv")
-                        self.header.add_decl("nitmethod_t method")
-			self.header.add_decl("\};")
+                        self.header.add_decl("const struct type *type;")
+                        self.header.add_decl("const struct class *class;")
+                        self.header.add_decl("val* recv;")
+                        self.header.add_decl("nitmethod_t method;")
+                        self.header.add_decl("\};")
 
-                	#Build NEW
+                        #Build NEW
+                        print "Providing decl: {c_name}"
                         self.provide_declaration("NEW_{c_name}", "{mtype.ctype} NEW_{c_name}(val* recv, nitmethod_t method, const struct class* class, const struct type* type);")
-			v.add_decl("/* allocate {mtype} */")
-			v.add_decl("{mtype.ctype} NEW_{c_name}(val* recv, nitmethod_t method, const struct type* type)\{")
-			var res = v.get_name("self")
-			v.add_decl("struct instance_{c_name} *{res};")
-			var alloc = v.nit_alloc("sizeof(struct instance_{c_name})", mclass.full_name)
-			v.add("{res} = {alloc};")
-			v.add("{res}->type = type;")
-			hardening_live_type(v, "type")
+                        v.add_decl("/* allocate {mtype} */")
+                        v.add_decl("{mtype.ctype} NEW_{c_name}(val* recv, nitmethod_t method, const struct class* class, const struct type* type)\{")
+                        var res = v.get_name("self")
+                        v.add_decl("struct instance_{c_name} *{res};")
+                        var alloc = v.nit_alloc("sizeof(struct instance_{c_name})", mclass.full_name)
+                        v.add("{res} = {alloc};")
+                        v.add("{res}->type = type;")
+                        hardening_live_type(v, "type")
                         v.add("{res}->class = class;")
-			v.add("{res}->recv = recv;")
+                        v.add("{res}->recv = recv;")
                         v.add("{res}->method = method;")
-			v.add("return (val*){res};")
-			v.add("\}")
-			return
+                        v.add("return (val*){res};")
+                        v.add("\}")
+                        return
 		else if mtype.mclass.kind == extern_kind and mtype.mclass.name != "CString" then
 			# Is an extern class (other than Pointer and CString)
 			# Pointer is caught in a previous `if`, and CString is internal
@@ -1492,16 +1493,16 @@ class SeparateCompilerVisitor
 		# if compiler.modelbuilder.toolcontext.opt_invocation_metrics.value then add("count_invoke_by_tables++;")
 
                 var intro = mmethod.intro
-		var runtime_function = intro.virtual_runtime_function
-		var msignature = runtime_function.called_signature
+                var runtime_function = intro.virtual_runtime_function
+                var msignature = runtime_function.called_signature
                 var const_color = mmethod.const_color
-
+                require_declaration(const_color)
                 # Adapt the receiver to the `MMethod`'s first argument
                 var adapted_recv = recv
                 if recv.mtype.ctype != intro.mclassdef.mclass.mclass_type.ctype then
-			adapted_recv = autobox(recv, intro.mclassdef.mclass.mclass_type)
-		end
-                return "&({class_info(adapted_recv)}->vft[{const_color}])"
+                        adapted_recv = autobox(recv, intro.mclassdef.mclass.mclass_type)
+                end
+                return "({class_info(adapted_recv)}->vft[{const_color}])"
 
         end
 
@@ -2201,18 +2202,35 @@ class SeparateCompilerVisitor
 
         redef fun routine_ref_instance(routine_mclass_type, recv, mmethod)
         do
+                # routine_mclass is the specialized one, e.g: FunRef1, ProcRef2, etc..
                 var routine_mclass = routine_mclass_type.mclass
-                self.require_declaration("NEW_core__RoutineRef")
+                var nclasses = mmodule.model.get_mclasses_by_name("RoutineRef")
+                if nclasses == null then
+                        add_abort("Fatal: missing functional type, try `import functional`")
+                end
+                # base_routine_mclass is RoutineRef
+                var base_routine_mclass = nclasses.first
+
+                # All routine classes use the same `NEW` constructor.
+                # They have different declared `class` and `type` value.
+                # The `Routine` hierarchy collapse to a single representation
+                # in memory -> functional__RoutineRef. This struct is used
+                # to shortcut message send when invoking the `call` method.
+                self.require_declaration("NEW_{base_routine_mclass.c_name}")
                 var recv_class_cname = recv.mcasttype.as(MClassType).mclass.c_name
                 # The class of the concrete Routine must exist (e.g ProcRef0, FunRef0, etc.)
                 self.require_declaration("class_{routine_mclass.c_name}")
-                self.require_declaration("type_{routine_mclass_type}")
+                self.require_declaration("type_{routine_mclass_type.c_name}")
 
                 # The class of the receiver must exist
                 self.require_declaration("class_{recv_class_cname}")
                 # Resolve the method's vft entry
-                var nitmethod = "(nitmethod_t){resolve_mmethod_vft_c(recv, mmethod)}"
-                return self.new_expr("NEW_core__RoutineRef({recv}, {nitmethod}, &class_{routine_mclass.c_name}, &type_{routine_mclass_type})", routine_mclass_type)
+                var nitmethod = resolve_mmethod_vft_c(recv, mmethod)
+
+                var res = self.new_expr("NEW_{base_routine_mclass.c_name}({recv}, {nitmethod}, &class_{routine_mclass.c_name}, &type_{routine_mclass_type.c_name})", routine_mclass_type)
+
+                return res
+
         end
 
         # REQUIRE : before calling this method, args must be pre-adapted to
@@ -2220,44 +2238,64 @@ class SeparateCompilerVisitor
         redef fun routine_ref_call(mmethoddef, arguments)
         do
                 compiler.modelbuilder.nb_invok_by_tables += 1
-		if compiler.modelbuilder.toolcontext.opt_invocation_metrics.value then add("count_invoke_by_tables++;")
+                if compiler.modelbuilder.toolcontext.opt_invocation_metrics.value then add("count_invoke_by_tables++;")
+
                 var mmethod = mmethoddef.mproperty
                 var nclasses = mmodule.model.get_mclasses_by_name("RoutineRef")
                 if nclasses == null then
                         add_abort("Fatal: missing functional type, try `import functional`")
                 end
                 var nclass = nclasses.first
-                var runtime_function = mmethoddef.separate_runtime_function
-                var original_recv = "(((struct instance_{nclass.c_name}*){arguments[0]})->recv)"
+                var runtime_function = mmethoddef.virtual_runtime_function
+                var original_recv_c = "(((struct instance_{nclass.c_name}*){arguments[0]})->recv)"
                 var nitmethod = "(({runtime_function.c_funptrtype})(((struct instance_{nclass.c_name}*){arguments[0]})->method))"
 
-		var msignature = runtime_function.called_signature
+                var msignature = runtime_function.called_signature
 
-                # remove the default funref receiver
+                # Save the current receiver since adapt_signature will autobox
+                # the routine receiver which is not the  underlying receiver.
+                # The underlying receiver has already been adapted in the
+                # `routine_ref_instance` method. Here we just want to adapt the
+                # rest of the signature, but it's easier to pass the wrong
+                # receiver in adapt_signature then discards it with `shift`.
+                #
+                # ~~~~nitish
+                # class A; def toto do print "toto"; end
+                # var a = new A
+                # var f = &a.toto <- `a` is the underlying receiver
+                # f.call <- here `f` is the receiver the save
+                # ~~~~
+                var saved_recv = arguments.first
+                # if arguments.length == 1 -> arguments.first == routine's receiver
+                if arguments.length > 1 then
+                        adapt_signature(mmethoddef, arguments)
+                end
+
+                # remove the routine's receiver
                 arguments.shift
-		adapt_signature(mmethod.intro, arguments)
 
-		var res: nullable RuntimeVariable
-		var ret = msignature.return_mtype
-		if ret == null then
-			res = null
-		else
-			res = self.new_var(ret)
-		end
+                var res: nullable RuntimeVariable
+                var ret = msignature.return_mtype
+                if ret == null then
+                        res = null
+                else
+                        res = self.new_var(ret)
+                end
 
                 var ss = arguments.join(", ")
                 # replace the receiver with the original one
                 if arguments.length > 0 then
-                        ss = "{original_recv}, {ss}"
+                        ss = "{original_recv_c}, {ss}"
                 else
-                        ss = original_recv
+                        ss = original_recv_c
                 end
-		var ress
-		if res != null then
-			ress = "{res} = "
-		else
-			ress = ""
-		end
+                var ress
+                if res != null then
+                        ress = "{res} = "
+                else
+                        ress = ""
+                end
+                arguments.unshift saved_recv # put back the routine ref receiver
                 add "{ress}{nitmethod}({ss}); /* {mmethod} on {arguments.first.inspect}*/"
         end
 

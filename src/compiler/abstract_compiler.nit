@@ -1382,8 +1382,6 @@ abstract class AbstractCompilerVisitor
         fun routine_ref_instance(routine_mclass_type: MClassType, recv: RuntimeVariable, mmethod: MMethod): RuntimeVariable is abstract
 
         # Call the underlying referenced function
-        #
-        # REQUIRES : arguments must already be adapted.
         fun routine_ref_call(mmethoddef: MMethodDef, args: Array[RuntimeVariable]) is abstract
 
 	# Allocate `size` bytes with the low_level `nit_alloc` C function
@@ -3207,9 +3205,8 @@ redef class AMethPropdef
 				return true
 			end
                 else if all_routine_types.has(cname) then
-                        # is a func type
-                        v.adapt_signature(mpropdef, arguments)
                         v.routine_ref_call(mpropdef, arguments)
+                        return true
 		end
 		if pname == "exit" then
 			v.add("exit((int){arguments[1]});")
