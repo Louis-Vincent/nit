@@ -290,7 +290,6 @@ class SeparateCompiler
 		if color_consts_done.has(m) then return
 		if m isa MEntity then
 			if modelbuilder.toolcontext.opt_inline_coloring_numbers.value then
-                var mtype = mmodule.routine-type
 				self.provide_declaration(m.const_color, "#define {m.const_color} {color}")
 			else if not modelbuilder.toolcontext.opt_colors_are_symbols.value or not v.compiler.target_platform.supports_linker_script then
 				self.provide_declaration(m.const_color, "extern const int {m.const_color};")
@@ -946,11 +945,11 @@ class SeparateCompiler
 			self.header.add_decl("const struct type *type;")
 			self.header.add_decl("const struct class *class;")
 			self.header.add_decl("val* recv")
-                        self.header.add_decl("nitmethod_t method"
+                        self.header.add_decl("nitmethod_t method")
 			self.header.add_decl("\};")
 
                 	#Build NEW
-			self.provide_declaration("NEW_{c_name}", "{mtype.ctype} NEW_{c_name}(val* recv, nitmethod_t method, const struct type* type);")
+                        self.provide_declaration("NEW_{c_name}", "{mtype.ctype} NEW_{c_name}(val* recv, nitmethod_t method, const struct class* class, const struct type* type);")
 			v.add_decl("/* allocate {mtype} */")
 			v.add_decl("{mtype.ctype} NEW_{c_name}(val* recv, nitmethod_t method, const struct type* type)\{")
 			var res = v.get_name("self")
@@ -959,8 +958,7 @@ class SeparateCompiler
 			v.add("{res} = {alloc};")
 			v.add("{res}->type = type;")
 			hardening_live_type(v, "type")
-			v.require_declaration("class_{c_name}")
-			v.add("{res}->class = &class_{c_name};")
+                        v.add("{res}->class = class;")
 			v.add("{res}->recv = recv;")
                         v.add("{res}->method = method;")
 			v.add("return (val*){res};")
@@ -1482,6 +1480,30 @@ class SeparateCompilerVisitor
 		end
 		return res
 	end
+
+        # Returns a `C` expression that evaluates to the vft entry's address.
+        #
+        # Bounds the receiver to the method and resolve the proper vft entry.
+        private fun resolve_mmethod_vft_c(recv: RuntimeVariable, mmethod: MMethod): String
+        do
+                # dup of `table_send`
+
+                # compiler.modelbuilder.nb_invok_by_tables += 1
+		# if compiler.modelbuilder.toolcontext.opt_invocation_metrics.value then add("count_invoke_by_tables++;")
+
+                var intro = mmethod.intro
+		var runtime_function = intro.virtual_runtime_function
+		var msignature = runtime_function.called_signature
+                var const_color = mmethod.const_color
+
+                # Adapt the receiver to the `MMethod`'s first argument
+                var adapted_recv = recv
+                if recv.mtype.ctype != intro.mclassdef.mclass.mclass_type.ctype then
+			adapted_recv = autobox(recv, intro.mclassdef.mclass.mclass_type)
+		end
+                return "&({class_info(adapted_recv)}->vft[{const_color}])"
+
+        end
 
 	private fun table_send(mmethod: MMethod, arguments: Array[RuntimeVariable], mentity: MEntity): nullable RuntimeVariable
 	do
@@ -2177,20 +2199,66 @@ class SeparateCompilerVisitor
 		self.add("{recv}[{i}]={val};")
 	end
 
-        redef fun routine_ref_instance(recv, callsite, mclasstype)
+        redef fun routine_ref_instance(routine_mclass_type, recv, mmethod)
         do
+                var routine_mclass = routine_mclass_type.mclass
                 self.require_declaration("NEW_core__RoutineRef")
-                self.require_declration("class_{recv.mclass.c_name}")
-                callsite.rev
-                return self.new_expr("NEW_core__RoutineRef({recv}, ,&type_{mclasstype.c_name})", mtype)
+                var recv_class_cname = recv.mcasttype.as(MClassType).mclass.c_name
+                # The class of the concrete Routine must exist (e.g ProcRef0, FunRef0, etc.)
+                self.require_declaration("class_{routine_mclass.c_name}")
+                self.require_declaration("type_{routine_mclass_type}")
+
+                # The class of the receiver must exist
+                self.require_declaration("class_{recv_class_cname}")
+                # Resolve the method's vft entry
+                var nitmethod = "(nitmethod_t){resolve_mmethod_vft_c(recv, mmethod)}"
+                return self.new_expr("NEW_core__RoutineRef({recv}, {nitmethod}, &class_{routine_mclass.c_name}, &type_{routine_mclass_type})", routine_mclass_type)
         end
 
-        redef fun routine_ref_call(routine, args)
+        # REQUIRE : before calling this method, args must be pre-adapted to
+        # the underlying method's signature
+        redef fun routine_ref_call(mmethoddef, arguments)
         do
-                var underlying_routine = "((struct instance_core__RoutineRef){routine})->method"
-                var res = self.new_expr("(*{underlying_routine})({args})"
+                compiler.modelbuilder.nb_invok_by_tables += 1
+		if compiler.modelbuilder.toolcontext.opt_invocation_metrics.value then add("count_invoke_by_tables++;")
+                var mmethod = mmethoddef.mproperty
+                var nclasses = mmodule.model.get_mclasses_by_name("RoutineRef")
+                if nclasses == null then
+                        add_abort("Fatal: missing functional type, try `import functional`")
+                end
+                var nclass = nclasses.first
+                var runtime_function = mmethoddef.separate_runtime_function
+                var original_recv = "(((struct instance_{nclass.c_name}*){arguments[0]})->recv)"
+                var nitmethod = "(({runtime_function.c_funptrtype})(((struct instance_{nclass.c_name}*){arguments[0]})->method))"
 
-                return null
+		var msignature = runtime_function.called_signature
+
+                # remove the default funref receiver
+                arguments.shift
+		adapt_signature(mmethod.intro, arguments)
+
+		var res: nullable RuntimeVariable
+		var ret = msignature.return_mtype
+		if ret == null then
+			res = null
+		else
+			res = self.new_var(ret)
+		end
+
+                var ss = arguments.join(", ")
+                # replace the receiver with the original one
+                if arguments.length > 0 then
+                        ss = "{original_recv}, {ss}"
+                else
+                        ss = original_recv
+                end
+		var ress
+		if res != null then
+			ress = "{res} = "
+		else
+			ress = ""
+		end
+                add "{ress}{nitmethod}({ss}); /* {mmethod} on {arguments.first.inspect}*/"
         end
 
 	fun link_unresolved_type(mclassdef: MClassDef, mtype: MType) do

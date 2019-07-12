@@ -1379,10 +1379,12 @@ abstract class AbstractCompilerVisitor
 
         # Instantiate a new routine fat pointer, i.e memorized the original
         # receiver and callsite info.
-        fun routine_ref_instance(recv: RuntimeVariable, callsite: CallSite, mtype: MClassType): RuntimeVariable is abstract
+        fun routine_ref_instance(routine_mclass_type: MClassType, recv: RuntimeVariable, mmethod: MMethod): RuntimeVariable is abstract
 
         # Call the underlying referenced function
-        fun routine_ref_call(routine_ref: RuntimeVariable, args: SequenceRead[RuntimeVariable]): nullable RuntimeVariable is abstract
+        #
+        # REQUIRES : arguments must already be adapted.
+        fun routine_ref_call(mmethoddef: MMethodDef, args: Array[RuntimeVariable]) is abstract
 
 	# Allocate `size` bytes with the low_level `nit_alloc` C function
 	#
@@ -2430,6 +2432,14 @@ redef class AMethPropdef
 		var pname = mpropdef.mproperty.name
 		var cname = mpropdef.mclassdef.mclass.name
 		var ret = mpropdef.msignature.return_mtype
+                var basic_routine_types = ["Fun", "Proc", "FunRef", "ProcRef"]
+                var all_routine_types = new Array[String]
+                for routine_name in basic_routine_types do
+                        # Currently there's 20 arity per func type
+                        for i in [0..20[ do
+                                all_routine_types.push("{routine_name}{i}")
+                        end
+                end
 		if ret != null then
 			ret = v.resolve_for(ret, arguments.first)
 		end
@@ -3196,6 +3206,10 @@ redef class AMethPropdef
 				v.ret(v.new_expr("~{arguments[0]}", ret.as(not null)))
 				return true
 			end
+                else if all_routine_types.has(cname) then
+                        # is a func type
+                        v.adapt_signature(mpropdef, arguments)
+                        v.routine_ref_call(mpropdef, arguments)
 		end
 		if pname == "exit" then
 			v.add("exit((int){arguments[1]});")
@@ -4103,7 +4117,7 @@ redef class ACallrefExpr
         redef fun expr(v)
         do
                 var recv = v.expr(self.n_expr, null)
-                return v.routine_ref_instance(mtype, recv, callsite.as(not null))
+                return v.routine_ref_instance(mtype.as(MClassType), recv, callsite.as(not null).mproperty)
         end
 end
 

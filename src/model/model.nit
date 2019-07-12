@@ -294,13 +294,8 @@ redef class MModule
 	# A primitive type of `NativeArray`
 	fun native_array_type(elt_type: MType): MClassType do return native_array_class.get_mtype([elt_type])
 
-	# The primitive class `NativeArray`
+	# The class `NativeArray`
 	var native_array_class: MClass = self.get_primitive_class("NativeArray") is lazy
-
-        # The primitive class `RoutineRef`
-        var routine_class: MClass = self.get_primitive_class("RoutineRef") is lazy
-
-        var routine_type: MClassType do return routine_class.get_mtype([])
 
 	# The primitive type `Sys`, the main type of the program, if any
 	fun sys_type: nullable MClassType
