@@ -171,4 +171,3 @@ end
 
 var fw = new FileWriter.open("functional_types.nit")
 generate_functypes(20, fw)
-
