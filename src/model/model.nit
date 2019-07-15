@@ -1912,6 +1912,8 @@ end
 class MSignature
 	super MType
 
+        redef var need_anchor = false
+
 	# The each parameter (in order)
 	var mparameters: Array[MParameter]
 
@@ -1953,6 +1955,16 @@ class MSignature
 	# REQUIRE: 1 <= mparameters.count p -> p.is_vararg
 	init
 	do
+                # This test is useful to pass assertions when calling `resolve_for`
+                # on a signature
+                for param in mparameters do
+                        if param.mtype.need_anchor then
+                                need_anchor = true
+                                break
+                        end
+                end
+                need_anchor = need_anchor and (return_mtype == null or not return_mtype.need_anchor)
+
 		var vararg_rank = -1
 		for i in [0..mparameters.length[ do
 			var parameter = mparameters[i]

@@ -948,6 +948,23 @@ class SeparateCompiler
                         self.header.add_decl("nitmethod_t method;")
                         self.header.add_decl("\};")
 
+                        #print "Providing decl: {c_name}"
+                        #self.provide_declaration("NEW_{c_name}", "{mtype.ctype} NEW_{c_name}(val* recv, nitmethod_t method, const struct type* type);")
+                        #v.add_decl("/* allocate {mtype} */")
+                        #v.add_decl("{mtype.ctype} NEW_{c_name}(val* recv, nitmethod_t method, const struct type* type)\{")
+                        #var res = v.get_name("self")
+                        #v.add_decl("struct instance_{c_name} *{res};")
+                        #var alloc = v.nit_alloc("sizeof(struct instance_{c_name})", mclass.full_name)
+                        #v.add("{res} = {alloc};")
+                        #v.add("{res}->type = type;")
+                        #hardening_live_type(v, "type")
+                        #v.require_declaration("class_{c_name}")
+			#v.add("{res}->class = &class_{c_name};")
+                        #v.add("{res}->recv = recv;")
+                        #v.add("{res}->method = method;")
+                        #v.add("return (val*){res};")
+                        #v.add("\}")
+
                         #Build NEW
                         print "Providing decl: {c_name}"
                         self.provide_declaration("NEW_{c_name}", "{mtype.ctype} NEW_{c_name}(val* recv, nitmethod_t method, const struct class* class, const struct type* type);")
@@ -1510,7 +1527,6 @@ class SeparateCompilerVisitor
 	do
 		compiler.modelbuilder.nb_invok_by_tables += 1
 		if compiler.modelbuilder.toolcontext.opt_invocation_metrics.value then add("count_invoke_by_tables++;")
-
 		assert arguments.length == mmethod.intro.msignature.arity + 1 else debug("Invalid arity for {mmethod}. {arguments.length} arguments given.")
 
 		var res0 = before_send(mmethod, arguments)
@@ -1594,6 +1610,7 @@ class SeparateCompilerVisitor
 
 		if (mmethoddef.is_intern and not compiler.modelbuilder.toolcontext.opt_no_inline_intern.value) or
 			(compiler.modelbuilder.toolcontext.opt_inline_some_methods.value and mmethoddef.can_inline(self)) then
+
 			compiler.modelbuilder.nb_invok_by_inline += 1
 			if compiler.modelbuilder.toolcontext.opt_invocation_metrics.value then add("count_invoke_by_inline++;")
 			var frame = new StaticFrame(self, mmethoddef, recvtype, arguments)
@@ -1613,7 +1630,6 @@ class SeparateCompilerVisitor
 
 		# Autobox arguments
 		self.adapt_signature(mmethoddef, arguments)
-
 		self.require_declaration(mmethoddef.c_name)
 		if res == null then
 			self.add("{mmethoddef.c_name}({arguments.join(", ")}); /* Direct call {mmethoddef} on {arguments.first.inspect}*/")
@@ -2200,17 +2216,32 @@ class SeparateCompilerVisitor
 		self.add("{recv}[{i}]={val};")
 	end
 
-        redef fun routine_ref_instance(routine_mclass_type, recv, mmethod)
+        redef fun routine_ref_instance(routine_mclass_type, recv, mmethoddef)
         do
+                var mmethod = mmethoddef.mproperty
                 # routine_mclass is the specialized one, e.g: FunRef1, ProcRef2, etc..
                 var routine_mclass = routine_mclass_type.mclass
-                var nclasses = mmodule.model.get_mclasses_by_name("RoutineRef")
-                if nclasses == null then
-                        add_abort("Fatal: missing functional type, try `import functional`")
-                end
-                # base_routine_mclass is RoutineRef
+
+                var nclasses = mmodule.model.get_mclasses_by_name("RoutineRef").as(not null)
                 var base_routine_mclass = nclasses.first
 
+                # New
+                #var types = new Array[MType]
+                #for param in mmethoddef.msignature.mparameters do
+                #        types.push(param.mtype)
+                #end
+                #if mmethoddef.msignature.return_mtype != null then
+                #        types.push(mmethoddef.msignature.return_mtype.as(not null))
+                #end
+                #var mtype = routine_mclass_type.mclass.get_mtype(types)
+
+                #self.require_declaration("NEW_{mtype.mclass.c_name}(val*, nitmethod_t, const struct type*)")
+                #self.require_declaration("type_{mtype.c_name}")
+                #var nitmethod = resolve_mmethod_vft_c(recv, mmethod)
+                #compiler.undead_types.add(mtype)
+                #var res = self.new_expr("NEW_{mtype.mclass.c_name}({recv}, {nitmethod}, &type_{mtype.c_name})", routine_mclass_type)
+
+                #return res
                 # All routine classes use the same `NEW` constructor.
                 # They have different declared `class` and `type` value.
                 # The `Routine` hierarchy collapse to a single representation
@@ -2228,29 +2259,17 @@ class SeparateCompilerVisitor
                 var nitmethod = resolve_mmethod_vft_c(recv, mmethod)
 
                 var res = self.new_expr("NEW_{base_routine_mclass.c_name}({recv}, {nitmethod}, &class_{routine_mclass.c_name}, &type_{routine_mclass_type.c_name})", routine_mclass_type)
-
                 return res
-
         end
 
-        # REQUIRE : before calling this method, args must be pre-adapted to
-        # the underlying method's signature
         redef fun routine_ref_call(mmethoddef, arguments)
         do
                 compiler.modelbuilder.nb_invok_by_tables += 1
                 if compiler.modelbuilder.toolcontext.opt_invocation_metrics.value then add("count_invoke_by_tables++;")
-
                 var mmethod = mmethoddef.mproperty
-                var nclasses = mmodule.model.get_mclasses_by_name("RoutineRef")
-                if nclasses == null then
-                        add_abort("Fatal: missing functional type, try `import functional`")
-                end
+                var nclasses = mmodule.model.get_mclasses_by_name("RoutineRef").as(not null)
                 var nclass = nclasses.first
                 var runtime_function = mmethoddef.virtual_runtime_function
-                var original_recv_c = "(((struct instance_{nclass.c_name}*){arguments[0]})->recv)"
-                var nitmethod = "(({runtime_function.c_funptrtype})(((struct instance_{nclass.c_name}*){arguments[0]})->method))"
-
-                var msignature = runtime_function.called_signature
 
                 # Save the current receiver since adapt_signature will autobox
                 # the routine receiver which is not the  underlying receiver.
@@ -2266,16 +2285,35 @@ class SeparateCompilerVisitor
                 # f.call <- here `f` is the receiver the save
                 # ~~~~
                 var saved_recv = arguments.first
+
+                # Retrieve the concrete routine type
+                var routine_mclass_type = saved_recv.mtype.as(MClassType)
+                # anchor the generic method to a concrete method
+                var anchored_msign = mmethoddef.msignature.anchor_to(mmethoddef.mclassdef.mmodule, routine_mclass_type).as(MSignature)
+
+                var temp_msignature = runtime_function.called_signature
+                # Replace the runtime function signature so that `c_funptrtype`
+                # returns the proper cast, otherwise it always return `val *`.
+                runtime_function.called_signature = anchored_msign
+                var original_recv_c = "(((struct instance_{nclass.c_name}*){arguments[0]})->recv)"
+                var nitmethod = "(({runtime_function.c_funptrtype})(((struct instance_{nclass.c_name}*){arguments[0]})->method))"
+                runtime_function.called_signature = temp_msignature
+
+
                 # if arguments.length == 1 -> arguments.first == routine's receiver
                 if arguments.length > 1 then
+                        temp_msignature = mmethoddef.msignature.as(MSignature)
+                        mmethoddef.msignature = anchored_msign
                         adapt_signature(mmethoddef, arguments)
+                        mmethoddef.msignature = temp_msignature
                 end
 
                 # remove the routine's receiver
                 arguments.shift
 
                 var res: nullable RuntimeVariable
-                var ret = msignature.return_mtype
+                #var ret = msignature.return_mtype
+                var ret = anchored_msign.return_mtype
                 if ret == null then
                         res = null
                 else

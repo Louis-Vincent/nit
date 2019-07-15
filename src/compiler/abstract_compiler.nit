@@ -1377,9 +1377,8 @@ abstract class AbstractCompilerVisitor
 	# The method is unsafe and is just a direct wrapper for the specific implementation of native arrays
 	fun native_array_set(native_array: RuntimeVariable, index: Int, value: RuntimeVariable) is abstract
 
-        # Instantiate a new routine fat pointer, i.e memorized the original
-        # receiver and callsite info.
-        fun routine_ref_instance(routine_mclass_type: MClassType, recv: RuntimeVariable, mmethod: MMethod): RuntimeVariable is abstract
+        # Instantiate a new routine pointer
+        fun routine_ref_instance(routine_mclass_type: MClassType, recv: RuntimeVariable, mmethoddef: MMethodDef): RuntimeVariable is abstract
 
         # Call the underlying referenced function
         fun routine_ref_call(mmethoddef: MMethodDef, args: Array[RuntimeVariable]) is abstract
@@ -2141,6 +2140,19 @@ class RuntimeVariable
 	end
 end
 
+#class CallrefRuntimeVariable
+#        super RuntimeVariable
+#
+#        var mpropdef: MMethodDef
+#
+#        init from_runtime_var(rv: RuntimeVariable, mpropdef: MMethodDef)
+#        do
+#                self.mpropdef = mpropdef
+#                init(rv.name, rv.mtype, rv.mcasttype, mpropdef)
+#                is_exact = rv.is_exact
+#        end
+#end
+
 # The static context of a visited property in a `AbstractCompilerVisitor`
 class StaticFrame
 
@@ -2441,7 +2453,7 @@ redef class AMethPropdef
 		if ret != null then
 			ret = v.resolve_for(ret, arguments.first)
 		end
-		if pname != "==" and pname != "!=" then
+		if pname != "==" and pname != "!=" and pname != "call" and not all_routine_types.has(cname) then
 			v.adapt_signature(mpropdef, arguments)
 			v.unbox_signature_extern(mpropdef, arguments)
 		end
@@ -4114,7 +4126,7 @@ redef class ACallrefExpr
         redef fun expr(v)
         do
                 var recv = v.expr(self.n_expr, null)
-                return v.routine_ref_instance(mtype.as(MClassType), recv, callsite.as(not null).mproperty)
+                return v.routine_ref_instance(mtype.as(MClassType), recv, callsite.as(not null).mpropdef)
         end
 end
 
