@@ -26,6 +26,7 @@ var a = new A
 var b = new B
 
 var f = &a.titi
-
+var f2: Proc1[Int] = f
 a.titi(100)
 f.call(1000)
+f2.call(10000)
