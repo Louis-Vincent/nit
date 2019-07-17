@@ -275,7 +275,7 @@ class SeparateCompiler
 			return self.box_kinds[self.mainmodule.pointer_type.mclass]
 		else
 			return self.box_kinds[mclass]
-
+                end
 	end
 
 	fun compile_color_consts(colors: Map[Object, Int]) do
@@ -948,7 +948,6 @@ class SeparateCompiler
                         self.header.add_decl("\};")
 
                         #Build NEW
-                        print "Providing decl: {c_name}"
                         self.provide_declaration("NEW_{c_name}", "{mtype.ctype} NEW_{c_name}(val* recv, nitmethod_t method, const struct class* class, const struct type* type);")
                         v.add_decl("/* allocate {mtype} */")
                         v.add_decl("{mtype.ctype} NEW_{c_name}(val* recv, nitmethod_t method, const struct class* class, const struct type* type)\{")
@@ -2208,23 +2207,28 @@ class SeparateCompilerVisitor
                 var base_routine_mclass = nclasses.first
 
                 # All routine classes use the same `NEW` constructor.
-                # They have different declared `class` and `type` value.
-                # The `Routine` hierarchy collapse to a single representation
-                # in memory -> functional__RoutineRef. This struct is used
-                # to shortcut message send when invoking the `call` method.
+                # However, they have different declared `class` and `type` value.
                 self.require_declaration("NEW_{base_routine_mclass.c_name}")
                 var recv_class_cname = recv.mcasttype.as(MClassType).mclass.c_name
+
                 # The class of the concrete Routine must exist (e.g ProcRef0, FunRef0, etc.)
                 self.require_declaration("class_{routine_mclass.c_name}")
                 self.require_declaration("type_{routine_mclass_type.c_name}")
+
                 # The class of the receiver must exist
                 self.require_declaration("class_{recv_class_cname}")
-                # Resolve the method's vft entry
-                #var nitmethod = resolve_mmethod_vft_c(recv, mmethod)
 
-                #var runtime_function = mmethoddef.sep
+                self.require_declaration(mmethoddef.c_name)
+                self.require_declaration(mmethoddef.stub.c_name)
 
-                var res = self.new_expr("NEW_{base_routine_mclass.c_name}({recv}, {mmethoddef.stub.c_ref}, &class_{routine_mclass.c_name}, &type_{routine_mclass_type.c_name})", routine_mclass_type)
+                # Avoid duplicate stub
+                if not compiler.compiled_stub.has(mmethoddef) then
+                        mmethoddef.stub.compile_to_c(compiler)
+                        compiler.compiled_stub.add(mmethoddef)
+                end
+
+                # Each RoutineRef points to a receiver AND a stub
+                var res = self.new_expr("NEW_{base_routine_mclass.c_name}({recv}, (nitmethod_t){mmethoddef.stub.c_ref}, &class_{routine_mclass.c_name}, &type_{routine_mclass_type.c_name})", routine_mclass_type)
                 return res
         end
 
@@ -2236,6 +2240,7 @@ class SeparateCompilerVisitor
                 var nclasses = mmodule.model.get_mclasses_by_name("RoutineRef").as(not null)
                 var nclass = nclasses.first
                 var runtime_function = mmethoddef.virtual_runtime_function
+                var nullable_object = mmodule.object_type.as_nullable
 
                 # Save the current receiver since adapt_signature will autobox
                 # the routine receiver which is not the  underlying receiver.
@@ -2251,41 +2256,28 @@ class SeparateCompilerVisitor
                 # f.call <- here `f` is the receiver the save
                 # ~~~~
                 var saved_recv = arguments.first
+                var routine_mclass_type = saved_recv.mtype.as(MClassType)
 
                 # Retrieve the concrete routine type
-                var routine_mclass_type = saved_recv.mtype.as(MClassType)
-                # anchor the generic method to a concrete method
-                var anchored_msign = mmethoddef.msignature.anchor_to(mmethoddef.mclassdef.mmodule, routine_mclass_type).as(MSignature)
-
-                var temp_msignature = runtime_function.called_signature
-                # Replace the runtime function signature so that `c_funptrtype`
-                # returns the proper cast, otherwise it always return `val *`.
-                runtime_function.called_signature = anchored_msign
                 var original_recv_c = "(((struct instance_{nclass.c_name}*){arguments[0]})->recv)"
                 var nitmethod = "(({runtime_function.c_funptrtype})(((struct instance_{nclass.c_name}*){arguments[0]})->method))"
-                runtime_function.called_signature = temp_msignature
 
-
-                # if arguments.length == 1 -> arguments.first == routine's receiver
                 if arguments.length > 1 then
-                        temp_msignature = mmethoddef.msignature.as(MSignature)
-                        mmethoddef.msignature = anchored_msign
+                        # Hhere mmethoddef's signature is always nullable Object
                         adapt_signature(mmethoddef, arguments)
-                        mmethoddef.msignature = temp_msignature
+                end
+
+                #var ret = msignature.return_mtype
+                var ret_mtype = runtime_function.called_signature.return_mtype
+
+                if ret_mtype != null then
+                        # `ret` is actually always nullable Object, the most specific
+                        # return type is inside the current routine_mclass
+                        ret_mtype = routine_mclass_type.arguments.last
                 end
 
                 # remove the routine's receiver
                 arguments.shift
-
-                var res: nullable RuntimeVariable
-                #var ret = msignature.return_mtype
-                var ret = anchored_msign.return_mtype
-                if ret == null then
-                        res = null
-                else
-                        res = self.new_var(ret)
-                end
-
                 var ss = arguments.join(", ")
                 # replace the receiver with the original one
                 if arguments.length > 0 then
@@ -2293,14 +2285,16 @@ class SeparateCompilerVisitor
                 else
                         ss = original_recv_c
                 end
-                var ress
-                if res != null then
-                        ress = "{res} = "
-                else
-                        ress = ""
-                end
+
                 arguments.unshift saved_recv # put back the routine ref receiver
-                add "{ress}{nitmethod}({ss}); /* {mmethod} on {arguments.first.inspect}*/"
+                add "/* {mmethod} on {arguments.first.inspect}*/"
+                var callsite = "{nitmethod}({ss})"
+                if ret_mtype != null then
+                        var subres = autobox(new_expr("{callsite}", nullable_object), ret_mtype)
+                        ret(subres)#assign(res.as(not null), subres)
+                else
+                        add("{callsite};")
+		end
         end
 
 	fun link_unresolved_type(mclassdef: MClassDef, mtype: MType) do
@@ -2330,10 +2324,10 @@ redef class MMethodDef
 
         fun stub: MethodStub
         do
-                var runtime_function = stub_cache
-                var res = self.stub
+                var res = stub_cache
                 if res == null then
-                        self.stub = new MethodStub(runtime_function)
+                        res = new MethodStub(separate_runtime_function)
+                        stub_cache = res
                 end
                 return res
         end
@@ -2391,19 +2385,23 @@ redef class MSignature
 	end
 end
 
+# Like Trampolines, method stubs add an indirection between the caller and the
+# callee. However, not only the receiver is passed as a `val*` all its parameters
+# and its return value are handled as `val*`. Method stub must do the proper conversion
+# in between.
 class MethodStub
-        var inner: SeparateRuntimeFunction
+        var callee: SeparateRuntimeFunction
 
         fun c_name: String
         do
-                return "stub_{inner.c_name}"
+                return "stub_{callee.c_name}"
         end
 
         # The C return type (something or `void`)
 	var c_ret: String is lazy do
-		var ret = inner.called_signature.return_mtype
+		var ret = callee.called_signature.return_mtype
 		if ret != null then
-			return ret.ctype
+			return "val*"
 		else
 			return "void"
 		end
@@ -2412,6 +2410,7 @@ class MethodStub
 	# The C signature (only the parmeter part)
 	var c_sig: String is lazy do
 		var sig = new FlatBuffer
+                var msignature = callee.called_signature
                 sig.append("(val* self")
 		for i in [0..msignature.arity[ do
                         sig.append(", val* p{i}")
@@ -2420,51 +2419,55 @@ class MethodStub
 		return sig.to_s
 	end
 
-        var c_ref: Strin is lazy do return "&{c_name}"
+        var c_ref: String is lazy do return "&{c_name}"
 
         var c_funptrtype: String is lazy do return "{c_ret}(*){c_sig}"
 
         fun compile_to_c(compiler: AbstractCompiler)
         do
                 var v = compiler.new_visitor
-                var msignature = inner.called_signature
-                var mmethoddef = inner.mmethoddef
+
+                var msignature = callee.called_signature
+                var mmethoddef = callee.mmethoddef
                 var nullable_object = v.mmodule.object_type.as_nullable
-                var ret = inner.called_signature.return_mtype
+                var ret = callee.called_signature.return_mtype
                 var recv = mmethoddef.mclassdef.bound_mtype
-                var selfvar = new RuntimeVariable("self", inner.called_recv, recv)
+                var selfvar = new RuntimeVariable("self", callee.called_recv, recv)
                 var arguments = [selfvar]
 
-                # params
+                # params : box all arguments
                 for i in [0..msignature.arity[ do
                         arguments.push(new RuntimeVariable("p{i}", nullable_object, nullable_object))
                 end
+
                 # full signature
                 var sig = "{c_ret} {c_name}{c_sig}"
-                compiler.provide_declaration(self.c_name, "{sig};")
+                compiler.provide_declaration(c_name, "{sig};")
 
 		var frame = new StaticFrame(v, mmethoddef, recv, arguments)
 		v.frame = frame
 
 		v.add_decl("{sig} \{")
 		if ret != null then
-			frame.returnvar = v.new_var(ret)
+			frame.returnvar = v.new_var(nullable_object)
 		end
 		frame.returnlabel = v.get_name("RET_LABEL")
 
 	        # stub body
-                var arguments2 = new Array[RuntimeVariable]
+                var arguments2 = [selfvar]
                 for i in [0..msignature.arity[ do
-                        var res = v.autobox(arguments[i], msignature.mparameters[i].mtype)
+                        var res = v.autobox(arguments[i+1], msignature.mparameters[i].mtype)
                         arguments2.push(res)
                 end
-                var res = v.new_expr("{inner.c_name}({arguments2.join(",")})", nullable_object)
+                var callsite = "{callee.c_name}({arguments2.join(",")})"
 		if ret != null then
-                        v.ret(res)
-			v.add("return {frame.returnvar.as(not null)};")
+                        var res = v.autobox(v.new_expr("{callsite}", ret), nullable_object)
+                        v.assign(frame.returnvar.as(not null), res)
+                        v.add("return {frame.returnvar.as(not null)};")
+                else
+                        v.add("{callsite};")
 		end
 		v.add("\}")
-		compiler.names[self.c_name] = "{mmethoddef.full_name} ({mmethoddef.location.file.filename}:{mmethoddef.location.line_start})"
         end
 end
 

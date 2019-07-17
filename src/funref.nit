@@ -9,24 +9,16 @@ class A
         end
 end
 
-
-class B
-        fun tutu
+class B[E]
+        fun tete(x: E)
         do
-                print "in tutu"
-        end
-
-        fun toto(x: String)
-        do
-                print "in toto: {x}"
+                print "in tete: {x.as(not null)}"
         end
 end
 
 var a = new A
-var b = new B
-
+var b = new B[Int]
 var f = &a.titi
-var f2: Proc1[Int] = f
-a.titi(100)
-f.call(1000)
-f2.call(10000)
+var g = &b.tete
+g.call(100)
+f.call(10)

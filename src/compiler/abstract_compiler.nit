@@ -625,6 +625,9 @@ abstract class AbstractCompiler
 	# The targeted specific platform
 	var target_platform: Platform is noinit
 
+        # All methods who already has a stub generated for
+        var compiled_stub = new HashSet[MMethodDef]
+
 	init
 	do
 		self.realmainmodule = mainmodule
@@ -2139,19 +2142,6 @@ class RuntimeVariable
 		return "<{name}:{type_str}>"
 	end
 end
-
-#class CallrefRuntimeVariable
-#        super RuntimeVariable
-#
-#        var mpropdef: MMethodDef
-#
-#        init from_runtime_var(rv: RuntimeVariable, mpropdef: MMethodDef)
-#        do
-#                self.mpropdef = mpropdef
-#                init(rv.name, rv.mtype, rv.mcasttype, mpropdef)
-#                is_exact = rv.is_exact
-#        end
-#end
 
 # The static context of a visited property in a `AbstractCompilerVisitor`
 class StaticFrame
