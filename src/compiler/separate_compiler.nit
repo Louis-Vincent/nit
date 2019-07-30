@@ -194,11 +194,6 @@ class SeparateCompiler
 		modelbuilder.toolcontext.info("Type coloring", 2)
 		compiler.new_file("{c_name}.types")
 		compiler.compile_types
-
-
-                for thunk in thunks_to_compile do
-                        thunk.compile_to_c(self)
-                end
 	end
 
         fun thunk_todo(thunk: SeparateRuntimeFunction)
