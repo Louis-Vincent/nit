@@ -2543,52 +2543,6 @@ redef class ADebugTypeExpr
 	end
 end
 
-
-#redef class AFunrefExpr
-#       redef fun accept_typing(v: TypingVisitor)
-#       do
-#                var fun_name = n_qid.n_id.text
-#                #var props = v.modelbuilder.model.get_mproperties_by_name(fun_name)
-#
-#                # top level function are stored in object
-#                var mclass_sys = v.get_mclass(self, "Sys")
-#                if mclass_sys == null then
-#                        v.error(self, "Error: class `Sys` does not exists")
-#                        return
-#                end
-#
-#                var sys_type = mclass_sys.mclass_type
-#                var callsite = v.get_method(self, sys_type, fun_name, false)
-#
-#                if callsite == null then
-#                        v.error(self, "Error: function `{fun_name}`")
-#                        return
-#                end
-#
-#                var msignature = callsite.msignature
-#                var arity = msignature.mparameters.length
-#                var target_func_class = "Func" + arity.to_s
-#                var func_class = v.get_mclass(self, target_func_class)
-#                var unit_class = v.get_mclass(self, "Unit")
-#
-#                if unit_class == null or func_class == null then
-#                        v.error(self, "Error: missing functional types, try : `import functional`")
-#                        return
-#                end
-#
-#                var types_list = new Array[MType]
-#                for param in msignature.mparameters do
-#                        types_list.push(param.mtype)
-#                end
-#                types_list.push(unit_class.mclass_type)
-#
-#                var func_type = func_class.get_mtype(types_list)
-#
-#                mtype = func_type
-#                is_typed = true
-#        end
-#end
-
 redef class ACallrefExpr
 	redef fun property_name do return n_qid.n_id.text
 	redef fun property_node do return n_qid
@@ -2644,5 +2598,84 @@ redef class ACallrefExpr
 
                 is_typed = true
 		self.mtype = routine_type
+	end
+end
+
+redef class ALambdaExpr
+        var msignature: MSignature is noinit
+        var mclassdef: MClassDef is noinit
+	redef fun accept_typing(v)
+	do
+                var signature = n_signature
+                var type_list = new Array[MType]
+                var arity = signature.n_params.length
+                var routine_class: nullable MClass #= v.get_mclass(self, "Fun" + arity.to_s)
+                var param_list = new Array[MParameter]
+                var return_type: nullable MType = null
+                var i = 0
+                for param in signature.n_params do
+                        var n_type = param.n_type
+                        # currently, lambda expression requires full signature
+                        assert n_type != null
+                        var mtype2 = v.resolve_mtype(n_type)
+                        assert mtype2 != null
+                        param.variable.declared_type = mtype2
+                        type_list.push(mtype2)
+                        var is_vararg = param.n_dotdotdot != null
+                        param_list.push(new MParameter("p{i}", mtype2, is_vararg))
+                        i += 1
+                end
+                if signature.n_type != null then
+                        var n_type = signature.n_type.as(not null)
+                        var mtype2 = v.resolve_mtype(n_type)
+                        assert mtype2 != null
+                        type_list.push(mtype2)
+                        return_type = mtype2
+                        routine_class = v.get_mclass(self, "Fun" + arity.to_s)
+                else
+                        # case void
+                        routine_class = v.get_mclass(self, "Proc" + arity.to_s)
+                end
+
+                if routine_class == null then
+                        v.error(self, "Error: missing functional types, try `import functional`")
+                        return
+                end
+
+                msignature = new MSignature(param_list, return_type)
+
+                # Resolved the type here
+                mtype = routine_class.get_mtype(type_list)
+                var mclasstype = mtype.as(MClassType)
+                # Before doing the typing analysis inside the lambda body,
+                # we must instantiate new `MClassDef` and `MMethoDef`. They are
+                # used by return exprs who verify if the return type match
+                # with the current method signature.
+                var mclassdef = new MClassDef(v.mmodule, mclasstype, mtype.location)
+                var mmethod = v.mmodule.try_get_primitive_method("call", mclasstype.mclass).as(not null)
+                var mmethdef = mmethod.lookup_first_definition(v.mmodule, mtype.as(not null))
+
+                # lambda function's location = lambda class's location
+                var mmethdef2 = new MMethodDef(mclassdef, mmethdef.mproperty, mclassdef.location)
+                mmethdef2.msignature = msignature
+                var v2 = new TypeVisitor(v.modelbuilder, mmethdef2)
+
+
+                var nblock = self.n_expr
+		if nblock == null then return
+
+		loop
+			v2.dirty = false
+			v2.visit_stmt(nblock)
+			if not v2.has_loop or not v2.dirty then break
+		end
+
+		var post_visitor = new PostTypingVisitor(v2)
+		post_visitor.enter_visit(self)
+
+		if not nblock.after_flow_context.is_unreachable and msignature.return_mtype != null then
+			# We reach the end of the function without having a return, it is bad
+			v2.error(self, "Error: reached end of function; expected `return` with a value.")
+		end
 	end
 end

@@ -577,3 +577,12 @@ redef class AOnceExpr
 		v.current_flow_context = after_expr
 	end
 end
+
+redef class ALambdaExpr
+        redef fun accept_flow_visitor(v)
+        do
+                var v2 = new FlowVisitor(v.toolcontext)
+                v2.enter_visit(self.n_expr)
+                v.make_merge_flow(v.current_flow_context, v2.current_flow_context)
+        end
+end

@@ -2706,6 +2706,23 @@ class AFunrefExpr
 	var n_qid: AQid is writable, noinit
 end
 
+# A lambda function, eg `var f = fun(x: Int): Int do return x + 1`
+class ALambdaExpr
+        super AExpr
+
+        # The keyword `fun`
+        var n_kwmeth: TKwmeth is writable, noinit
+
+        # The signature of the lambda
+        var n_signature: ASignature is writable, noinit
+
+        # The `do` keyword before statement or block
+        var n_kwdo: TKwdo is writable, noinit
+
+        # Body of the lambda, statement or block expression.
+        var n_expr: nullable AExpr is writable, noinit
+end
+
 # A simple parenthesis. eg `(x)`
 class AParExpr
 	super AExpr

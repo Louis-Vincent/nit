@@ -71,8 +71,8 @@ private class ScopeVisitor
 	# The tool context used to display errors
 	var toolcontext: ToolContext
 
-	# The analysed property
-	var propdef: APropdef
+        # The next escape mark to attach to in the current context.
+	var escapemark: nullable EscapeMark
 
 	var selfvariable = new Variable("self")
 
@@ -257,8 +257,11 @@ redef class APropdef
 	# Entry point of the scope analysis
 	fun do_scope(toolcontext: ToolContext)
 	do
-		var v = new ScopeVisitor(toolcontext, self)
+		var v = new ScopeVisitor(toolcontext)
 		v.enter_visit(self)
+                if v.escapemark != null then
+                        return_mark = v.escapemark
+                end
 		v.shift_scope
 	end
 end
@@ -336,15 +339,18 @@ redef class AReturnExpr
 	redef fun accept_scope_visitor(v)
 	do
 		super
+                if v.escapemark == null then
+                        v.escapemark = new EscapeMark
+                end
+                escapemark = v.escapemark
+                #var escapemark = v.propdef.return_mark
+		#if escapemark == null then
+		#	escapemark = new EscapeMark
+		#	v.propdef.return_mark = escapemark
+		#end
 
-		var escapemark = v.propdef.return_mark
-		if escapemark == null then
-			escapemark = new EscapeMark
-			v.propdef.return_mark = escapemark
-		end
-
-		escapemark.escapes.add(self)
-		self.escapemark = escapemark
+		#escapemark.escapes.add(self)
+		#self.escapemark = escapemark
 	end
 end
 
@@ -522,4 +528,43 @@ redef class ACallReassignExpr
 		variable.warn_unread = false
 		return new AVarReassignExpr.init_avarreassignexpr(n_qid.n_id, n_assign_op, n_value)
 	end
+end
+
+
+redef class ALambdaExpr
+        var free_variables: Array[Variable] is noinit
+	redef fun accept_scope_visitor(v)
+	do
+                var v2 = new ClosureVisitor(v.toolcontext, null, v)
+                v2.enter_visit(n_signature)     # Visit arguments
+                v2.enter_visit(n_expr)
+                # Currently we don't support any free variable
+                free_variables = v2.free_variables
+                if not free_variables.is_empty then
+                        v.error(self, "Error: the capture of free variables `{free_variables}` is not supported.")
+                end
+	end
+end
+
+
+# Decorator for `ScopeVisitor`. Captures out of scope variables when calling
+# `search_variable`.
+private class ClosureVisitor
+        super ScopeVisitor
+        var outer_scope: ScopeVisitor
+
+        var free_variables = new Array[Variable]
+
+	# Return null if no such a variable is found.
+	redef fun search_variable(name: String): nullable Variable
+	do
+                var res = super
+                if res == null then
+                        res = outer_scope.search_variable(name)
+                        if res != null then
+                                free_variables.push(res)
+                        end
+                end
+                return res
+        end
 end
