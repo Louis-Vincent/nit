@@ -18,7 +18,8 @@
 # The current rules are a bit crazy but whatever.
 module auto_super_init
 
-import typing
+#import typing
+import lambda
 private import annotation
 
 redef class ToolContext

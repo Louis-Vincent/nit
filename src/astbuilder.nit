@@ -128,6 +128,43 @@ class ASTBuilder
 		return new AMethPropdef.make(n_visibility, tk_redef, mmethoddef, n_signature, n_annotations, n_extern_calls, n_extern_code_block, n_block)
 	end
 
+        # Makes a new class definition.
+        # If visibility is null, then it is private by default
+        # If class kind is null, then it is `MClass::kind`.
+        fun make_stdclass(mclassdef: MClassDef,
+                                n_kwredef: nullable TKwredef,
+		                n_visibility: nullable AVisibility,
+		                n_classkind: nullable AClasskind,
+		                n_qid: nullable AQclassid,
+		                n_formaldefs: Collection[Object],
+		                n_extern_code_block: nullable AExternCodeBlock,
+		                n_propdefs: Collection[Object]): AStdClassdef
+        do
+                var kind: AClasskind
+                if n_classkind == null then
+                        kind = make_classkind(mclassdef.mclass.kind)
+                else
+                        kind = n_classkind
+                end
+                return new AStdClassdef.make(mclassdef, n_kwredef, n_visibility, kind, n_qid, n_formaldefs, n_extern_code_block, n_propdefs)
+        end
+
+        fun make_classkind(mclasskind: MClassKind): AClasskind
+        do
+                if mclasskind == interface_kind then
+                        return new AInterfaceClasskind.init_ainterfaceclasskind(new TKwinterface)
+                else if mclasskind == abstract_kind then
+                        return new AAbstractClasskind.init_aabstractclasskind(new TKwabstract, new TKwclass)
+                else if mclasskind == concrete_kind then
+                        return new AConcreteClasskind.init_aconcreteclasskind(new TKwclass)
+                else if mclasskind == enum_kind then
+                        return new AEnumClasskind.init_aenumclasskind(new TKwenum)
+                else
+                        return new AExternClasskind.init_aexternclasskind(new TKwextern, new TKwclass)
+                end
+        end
+
+
 	# Make a new or with two expr
 	fun make_or(right_expr: AExpr, left_expr: AExpr): AOrExpr
 	do
@@ -302,6 +339,38 @@ redef class AMethPropdef
 		self.init_amethpropdef(null,tk_redef,n_visibility,new TKwmeth,null,null,null,n_methid,n_signature,n_annotations,n_extern_calls,n_extern_code_block,new TKwdo,n_block,new TKwend)
 		self.mpropdef = mmethoddef
 	end
+
+        # Inserts an expression at the beginning of the block.
+        fun insert_begin(n_expr: AExpr)
+        do
+                n_block.as(ABlockExpr).n_expr.unshift(n_expr)
+        end
+end
+
+redef class AStdClassdef
+        private init make(mclassdef: MClassDef,
+                                n_kwredef: nullable TKwredef,
+		                n_visibility: nullable AVisibility,
+		                n_classkind: AClasskind,
+		                n_qid: nullable AQclassid,
+		                n_formaldefs: Collection[Object],
+		                n_extern_code_block: nullable AExternCodeBlock,
+		                n_propdefs: Collection[Object])
+        do
+                var visibility = n_visibility
+                if visibility == null then visibility = new APrivateVisibility
+
+                var n_obra: nullable TObra = null
+                var n_cbra: nullable TCbra = null
+                if not n_formaldefs.is_empty then
+                        n_obra = new TObra
+                        n_cbra = new TCbra
+                end
+
+
+                self.init_astdclassdef(null, n_kwredef, visibility, n_classkind, null, n_obra, new Array[Object], n_cbra, n_extern_code_block, n_propdefs, new TKwend)
+                self.mclassdef = mclassdef
+        end
 end
 
 redef class AAssertExpr

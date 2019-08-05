@@ -207,6 +207,24 @@ redef class AWhileExpr
 	end
 end
 
+
+redef class ALambdaExpr
+        redef fun accept_trasnform_visitor(v)
+        do
+                loop
+                        var p = parent
+                        if p == null then
+                                print "error"
+                                return
+                        end
+                        if p isa AMethPropdef then
+                                break
+                        end
+                end
+
+        end
+end
+
 redef class AForExpr
 	redef fun accept_transform_visitor(v)
 	do

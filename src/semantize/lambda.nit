@@ -17,15 +17,39 @@
 # Lambda modelization (objectifying lambda expressions)
 # The main idea : wherever there's a lambda expr, a singleton class
 # is created. Each lambda in the same method definition will share the
-# same instance. This ensure a unique capture, reduce memory fragmentation
-# and is simple to implements.
+# same instance to ensure a unique capture.
 
-# At the typing phase, every lambda create a new `MClassDef`. These will be
-# fuse together, their name is gonna be mangled and added to the Model.
+# A new lambda class should be created when:
+#       1. A lambda expression in an attribute definition (not implemented)
+#       2. A lambda expression inside a method definition (half implemented)
+#       3. A lambda inside another lambda (half implemented)
+#       4. A for loop with a lambda in its body (not implemented)
+#
+# ~~~~nitish
+# class A
+#       var f = fun(x: Int) do return x end     # case 1
+#
+#       fun my_method
+#       do
+#               var g = fun(x: Int) do return x + 1 end # case 2
+#
+#               var h = fun(x: Int) do
+#                       var t = fun(y: Int) do x += y end # case 3
+#                       t(4)
+#               end
+#               for i in [0..10[ do
+#                       var w = fun(x: Int) do return x + i end # case 4
+#               end
+#       end
+# end
+# ~~~~
 module lambda
 
+import model_base
 import mmodule
 import typing
+import astbuilder
+import modelize
 
 redef class ToolContext
         var lambda_modelize_phase: Phase = new LambdaModelizePhase(self, [typing_phase])
@@ -33,41 +57,77 @@ end
 
 private class LambdaModelizePhase
         super Phase
-        redef fun process_npropdef(npropdef) do npropdef.do_lambda_modelize(toolcontext.modelbuilder)
+        var lambda_name_gen = new LambdaNameGen
+        var lambda_classes = new Array[AStdClassdef]
+        redef fun process_npropdef(npropdef)
+        do
+                var res = npropdef.do_lambda_modelize(toolcontext.modelbuilder, lambda_name_gen)
+                lambda_classes.add_all(res)
+        end
+
+        redef fun process_nmodule_after(nmodule)
+        do
+                var unsafe = new UnsafeModelRegistrer(toolcontext.modelbuilder, nmodule)
+                for aclassdef in lambda_classes do
+                        var mclass = aclassdef.mclassdef.mclass
+                        var mclassdef = aclassdef.mclassdef.as(not null)
+                        unsafe.unsafe_mclassdef2nclassdef(mclassdef, aclassdef)
+                        unsafe.unsafe_nmodule_mclass2nclassdef(mclass, aclassdef)
+
+                        for obj in aclassdef.n_propdefs do
+                                var amethdef = obj.as(AMethPropdef)
+                                var mpropdef = amethdef.mpropdef.as(not null)
+                                unsafe.unsafe_mpropdef2npropdef(mpropdef, amethdef)
+                        end
+                end
+        end
 end
 
-private class LambdaBuilder
+class LambdaNameGen
+        protected var count = 0
+        fun next: String
+        do
+                return "Lambda__Object__<>__{count}"
+        end
+end
+
+class LambdaBuilder
 
         # Where the final lambda class will be created.
         # WARNING you must be careful where to create the lambda,
         # because the it will be private visibility.
         var mmodule: MModule
 
-        # In which entity the lambda expr has been created (Scopish).
-        # There's only two scenario : inside a classdef or methoddef.
-        var mentity: MEntity
+        # Where the lambda is requested
+        var location: Location
 
+        var name: String
 
         # The class to build
-        var mclass: MClass is noinit
+        var mclass: MClass is protected writable, noinit
 
         # The associated definition to build
-        var mclassdef: MClassDef is noinit
-        var name: String is noinit
+        var mclassdef: MClassDef is protected writable, noinit
+
+        protected var ast_builder: ASTBuilder is noinit
+        protected var mpropdef2node: Map[MPropDef, APropdef] = new HashMap[MPropDef, APropdef]
+        protected var variable_count = 0
+        protected var method_count = 0
 
         init
         do
                 var kind = concrete_kind
-                var visibility = private_visibility
+                var visibility = public_visibility
                 # TODO: add name manglin
-                name = "{mmodule.name}__{mentity.name}__lambda"
-                mclass = new MClass(mmodule, name, mentity.location, ??, kind, visibility)
+                mclass = new MClass(mmodule, name, location, null, kind, visibility)
+                mclassdef = new MClassDef(mmodule, mclass.mclass_type, location)
+                ast_builder = new ASTBuilder(mmodule, mclass.mclass_type)
         end
 
         # Used for renaming (preventing name-collision in lambda capture)
-        protected var variable2name: Map[Variable, String] = new HashMap[Variable, String]
+        protected var variable2name: Map[Variable, MAttributeDef] = new HashMap[Variable, MAttributeDef]
 
-        # Captures and return the new name of the variable, avoiding any name
+        # Captures and return the attribute of the variable, avoiding any name
         # collision of different variable.
         #
         # ~~~~nitish
@@ -82,7 +142,7 @@ private class LambdaBuilder
         #       end
         # end
         # ~~~~
-        # This example will produce the following lambda class:
+        # This example will produce the following lambda(ish) class:
         #
         # ~~~~nitish
         # class Lambda__toto
@@ -93,76 +153,151 @@ private class LambdaBuilder
         # end
         # ~~~~
         #
-        # If the variable has already been mangled the same `String` is returned:
+        # If the variable has already been added to the class model the same
+        # attribute is returned:
         #
         # ~~~~nitish
         # var x = new Variable(...)
-        # var new_name1 = builder.capture_variable(x)
-        # var new_name2 = builder.capture_variable(x)
-        # assert new_name1 == new_name2
+        # var attr1 = builder.capture_variable(x)
+        # var attr2 = builder.capture_variable(x)
+        # assert attr1.is_same_instance(attr2)
         # ~~~~
-        fun capture_variable(variable: Variable): String
+        fun capture_variable(variable: Variable): MAttributeDef
         do
+                # TODO: free variable capture isn't complete
+                # Currently, this function is never called since scope phase
+                # prevents from capturing free variables.
+                if variable2name.has_key(variable) then
+                        return variable2name[variable]
+                end
+                var new_name = "instance__<>__var{variable_count}"
+                var mprop = new MAttribute(mclassdef, "_" + new_name, location, private_visibility)
+                var mpropdef = new MAttributeDef(mclassdef, mprop, location)
+                mpropdef.static_mtype = variable.declared_type
+                var mreadprop = new MMethod(mclassdef, new_name, location, public_visibility)
+                var mwriteprop = new MMethod(mclassdef, new_name + "=", location, public_visibility)
+                var mreadpropdef = new MMethodDef(mclassdef, mreadprop, location)
+                var mwritepropdef = new MMethodDef(mclassdef, mwriteprop, location)
+                mreadprop.getter_for = mprop
+                mwriteprop.setter_for = mprop
+                variable_count += 1
+                variable.lambda_mattributedef = mpropdef
+                return mpropdef
         end
 
-        # Produces a new method definition based on the provided signature
-        fun add_method(msignature: MSignature): nullable MMethodDef
+        # Produces a new method definition
+        fun add_method(body: AExpr, nsignature: ASignature, msignature: MSignature): AMethPropdef
         do
-                return null
+                var mprop = new MMethod(mclassdef, "lambda__<>__{method_count}", location, public_visibility)
+                var mpropdef = new MMethodDef(mclassdef, mprop, location)
+                mpropdef.msignature = msignature
+                var nmethdef = ast_builder.make_method(null, null, mpropdef, nsignature, null, null, null, body)
+                mpropdef2node[mpropdef] = nmethdef
+                return nmethdef
         end
+
+
+        fun finish: AStdClassdef
+        do
+                var propdefs = mpropdef2node.values
+                var res = ast_builder.make_stdclass(mclassdef, null, null, null, null, new Array[Object], null, propdefs)
+                return res
+        end
+
 end
 
-private class LambdaVisitor
+class LambdaVisitor
         super Visitor
         var modelbuilder: ModelBuilder
 
-        # The analyzed method definition
-        var mmethoddef: MMethodDef
+        # The module where to create lambda classes
+        var mmodule: MModule
 
-        # Keep the number of lambda expression visited.
-        # Used to name each lambda.
-        private var lambda_cnt = 0
+        # The analyzed method definition
+        var mentity: MEntity
+
+        var name_gen: LambdaNameGen
+
+        # All class definition generated by visited nodes.
+        var aclassdefs = new Array[AStdClassdef] is protected writable
+
+        # The lambda class builder
+        protected var lambda_builder_cache: nullable LambdaBuilder is noinit
+
+        protected var scopes = new Array[LambdaBuilder]
+
+        fun lambda_builder: LambdaBuilder
+        do
+                return scopes.last
+        end
 
         redef fun visit(node)
         do
                 node.accept_lambda_modelize(self)
-                node.visit_all(self)
         end
 
-        fun add_lambda(mclassdef: MClassDef)
+        fun enter_visit_block(node: ANode)
         do
-                scopes.first.add_lambda(mclassdef)
+                var lb = new LambdaBuilder(mmodule, node.location, name_gen.next)
+                scopes.unshift lb
+                enter_visit(node)
+                shift_scope
         end
 
-        # Fuse and create a singleton class containing
-        # all the lambda expressions.
-        fun fuse
+        protected fun shift_scope
         do
+                var lb = scopes.shift
+                aclassdefs.add(lb.finish)
         end
 end
 
 
 redef class APropdef
-        fun do_lambda_modelize(modelbuilder: ModelBuilder)
+        fun do_lambda_modelize(modelbuilder: ModelBuilder, name_gen: LambdaNameGen): Array[AStdClassdef]
         do
+                return new Array[AStdClassdef]
         end
 end
 
 
 redef class AMethPropdef
-        redef fun do_lambda_modelize(modelbuilder)
+        redef fun do_lambda_modelize(modelbuilder, name_gen)
         do
-                var v = new LambdaVisitor(modelbuilder, mpropdef)
+                var mpropdef = self.mpropdef
+                var n_block = self.n_block
+                if n_block == null then return super
+                assert mpropdef != null
+                var v = new LambdaVisitor(modelbuilder, mpropdef.mclassdef.mmodule, mpropdef, name_gen)
+                v.enter_visit_block(n_block)
+                return v.aclassdefs
         end
 end
 
 
 redef class ANode
-        protected fun accept_lambda_modelize(v: LambdaVisitor) do end
+        protected fun accept_lambda_modelize(v: LambdaVisitor)
+        do
+                visit_all(v)
+        end
 end
 
-redef class ALambdaClass
+redef class ALambdaExpr
+        var nmethoddef: AMethPropdef is noinit
         redef fun accept_lambda_modelize(v)
         do
+                var n_expr = self.n_expr
+                if n_expr == null then return
+                nmethoddef = v.lambda_builder.add_method(n_expr, n_signature, msignature)
+                for free_var in free_variables do
+                        v.lambda_builder.capture_variable(free_var)
+                end
+                v.enter_visit_block(n_expr)
         end
+end
+
+
+redef class Variable
+        # not null if this variable is used by a lambda function.
+        # The associate lambda class attribute
+        var lambda_mattributedef: nullable MAttributeDef
 end

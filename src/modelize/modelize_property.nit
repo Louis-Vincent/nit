@@ -36,6 +36,25 @@ private class ModelizePropertyPhase
 	end
 end
 
+class UnsafeModelRegistrer
+        var modelbuilder: ModelBuilder
+        var nmodule: AModule
+        fun unsafe_mpropdef2npropdef(mpropdef: MPropDef, npropdef: APropdef)
+        do
+                modelbuilder.mpropdef2npropdef[mpropdef] = npropdef
+        end
+
+        fun unsafe_mclassdef2nclassdef(mclassdef: MClassDef, nclassdef: AClassdef)
+        do
+                modelbuilder.mclassdef2nclassdef[mclassdef] = nclassdef
+        end
+
+        fun unsafe_nmodule_mclass2nclassdef(mclass: MClass, nclassdef: AClassdef)
+        do
+                nmodule.mclass2nclassdef[mclass] = nclassdef
+        end
+end
+
 redef class ModelBuilder
 	# Registration of the npropdef associated to each mpropdef.
 	#
