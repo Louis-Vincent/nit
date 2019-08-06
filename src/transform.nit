@@ -89,6 +89,10 @@ redef class ANode
 	private fun accept_transform_visitor(v: TransformVisitor)
 	do
 	end
+
+        private fun add_closure(v: TransformVisitor, closure: ANode)
+        do
+        end
 end
 
 redef class AExpr
@@ -208,9 +212,20 @@ redef class AWhileExpr
 end
 
 
-redef class ALambdaExpr
-        redef fun accept_trasnform_visitor(v)
+redef class AMethPropdef
+        var has_closure = false
+        redef fun add_closure(v, closure)
         do
+                if has_closure then return
+                insert_begin(closure)
+                has_closure = true
+        end
+end
+
+redef class ALambdaExpr
+        redef fun accept_transform_visitor(v)
+        do
+                var nblock: AExpr
                 loop
                         var p = parent
                         if p == null then
@@ -221,7 +236,28 @@ redef class ALambdaExpr
                                 break
                         end
                 end
+                var mclassdef = mpropdef.mclassdef
+                var mpropdef = mclassdef.mclass.root_init
+                var recv = mclassdef.bound_mtype
+                var mmodule = mclassdef.mmodule
+                var anchor = null
+                var recv_is_self = false
+                var mprop = mpropdef.mproperty
+                var msignature = mpropdef.msignature
+                var erasure_cast = false
+                var callsite = new CallSite(location, recv, mmodule, anchor, recv_is_self, mprop, mpropdef, msignature, erasure_cast)
+                var n_newexpr = v.builder.make_new(callsuite, null)
+                var variable = new Variable("test")
+                var n_vardecl = v.builder.make_var_decl(variable, n_newexpr)
+                p.add_closure(v, n_vardecl)
 
+                var n_varexpr = v.builder.make_var_read(variable, recv)
+                var mpropdef2 = mpropdef
+                var mprop2 = mpropdef2.mproperty
+                var msignature2 = mpropdef2.msignature
+                var callsite2 = new Callsite(location, recv, mmodule, anchor, recv_is_self, mprop2, mpropdef2, msignature2, erasure_cast)
+                var ncallref = v.builder.make_callref(n_varexpr, callsite2)
+                replace_with(ncallref)
         end
 end
 

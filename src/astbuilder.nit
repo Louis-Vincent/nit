@@ -128,6 +128,11 @@ class ASTBuilder
 		return new AMethPropdef.make(n_visibility, tk_redef, mmethoddef, n_signature, n_annotations, n_extern_calls, n_extern_code_block, n_block)
 	end
 
+        fun make_callref(recv: AExpr, callsite: CallSite): ACallrefExpr
+        do
+                return new ACallrefExpr.make(recv, callsite)
+        end
+
         # Makes a new class definition.
         # If visibility is null, then it is private by default
         # If class kind is null, then it is `MClass::kind`.
@@ -194,6 +199,11 @@ class ASTBuilder
 	do
 		return new AReturnExpr.make(expr)
 	end
+
+        fun make_var_decl(variable: Variable, expr: AExpr): AVardeclExpr
+        do
+                return new AVardeclExpr.make(variable, expr)
+        end
 end
 
 redef class AExpr
@@ -319,6 +329,13 @@ redef class AAndExpr
 	do
 		self.init_aandexpr(right_expr,new TKwand ,left_expr)
 	end
+end
+
+redef class AVardeclExpr
+        private init make(variable: Variable, expr: AExpr)
+        do
+                self.init_avardeclexpr(new TKwvar, new TId, null, new TAssign, expr, null)
+        end
 end
 
 redef class AMethPropdef
@@ -515,6 +532,20 @@ redef class ACallExpr
 		self.mtype = callsite.msignature.return_mtype
 		self.is_typed = true
 	end
+end
+
+redef class ACallrefExpr
+        private init make(recv: AExpr, callsite: CallSite)
+        do
+                self._n_expr = recv
+                _n_amp = new TAmp
+		_n_qid = new AQid
+		_n_qid.n_id = new TId
+		_n_qid.n_id.text = callsite.mproperty.name
+		self.callsite = callsite
+		self.mtype = callsite.recv
+		self.is_typed = true
+        end
 end
 
 redef class AAttrExpr
