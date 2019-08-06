@@ -20,6 +20,7 @@ import astbuilder
 import semantize
 intrude import semantize::scope
 intrude import semantize::typing
+import semantize::lambda
 
 redef class ToolContext
 	var transform_phase: Phase = new TransformPhase(self, [typing_phase, auto_super_init_phase])
@@ -90,7 +91,7 @@ redef class ANode
 	do
 	end
 
-        private fun add_closure(v: TransformVisitor, closure: ANode)
+        private fun add_closure(v: TransformVisitor, closure: AExpr)
         do
         end
 end
@@ -225,7 +226,7 @@ end
 redef class ALambdaExpr
         redef fun accept_transform_visitor(v)
         do
-                var nblock: AExpr
+                var current_body: AMethPropdef
                 loop
                         var p = parent
                         if p == null then
@@ -233,29 +234,30 @@ redef class ALambdaExpr
                                 return
                         end
                         if p isa AMethPropdef then
+                                current_body = p
                                 break
                         end
                 end
-                var mclassdef = mpropdef.mclassdef
-                var mpropdef = mclassdef.mclass.root_init
+                var mclassdef = nmethoddef.mpropdef.mclassdef
+                var mpropdef = mclassdef.mclass.root_init.as(not null)
                 var recv = mclassdef.bound_mtype
                 var mmodule = mclassdef.mmodule
                 var anchor = null
                 var recv_is_self = false
                 var mprop = mpropdef.mproperty
-                var msignature = mpropdef.msignature
+                var msignature = mpropdef.msignature.as(not null)
                 var erasure_cast = false
                 var callsite = new CallSite(location, recv, mmodule, anchor, recv_is_self, mprop, mpropdef, msignature, erasure_cast)
-                var n_newexpr = v.builder.make_new(callsuite, null)
+                var n_newexpr = v.builder.make_new(callsite, null)
                 var variable = new Variable("test")
                 var n_vardecl = v.builder.make_var_decl(variable, n_newexpr)
-                p.add_closure(v, n_vardecl)
+                current_body.add_closure(v, n_vardecl)
 
                 var n_varexpr = v.builder.make_var_read(variable, recv)
-                var mpropdef2 = mpropdef
+                var mpropdef2 = nmethoddef.mpropdef.as(not null)
                 var mprop2 = mpropdef2.mproperty
-                var msignature2 = mpropdef2.msignature
-                var callsite2 = new Callsite(location, recv, mmodule, anchor, recv_is_self, mprop2, mpropdef2, msignature2, erasure_cast)
+                var msignature2 = mpropdef2.msignature.as(not null)
+                var callsite2 = new CallSite(location, recv, mmodule, anchor, recv_is_self, mprop2, mpropdef2, msignature2, erasure_cast)
                 var ncallref = v.builder.make_callref(n_varexpr, callsite2)
                 replace_with(ncallref)
         end

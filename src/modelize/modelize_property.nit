@@ -36,7 +36,7 @@ private class ModelizePropertyPhase
 	end
 end
 
-class UnsafeModelRegistrer
+class UnsafeModelBuilder
         var modelbuilder: ModelBuilder
         var nmodule: AModule
         fun mpropdef2npropdef(mpropdef: MPropDef, npropdef: APropdef)
@@ -52,6 +52,11 @@ class UnsafeModelRegistrer
         fun mclass2nclassdef(mclass: MClass, nclassdef: AClassdef)
         do
                 nmodule.mclass2nclassdef[mclass] = nclassdef
+        end
+
+        fun build_a_mclassdef_inheritance(nclassdef: AClassdef)
+        do
+                modelbuilder.build_a_mclassdef_inheritance(nmodule, nclassdef)
         end
 
         fun process_default_constructors(nclassdef: AClassdef)

@@ -67,8 +67,9 @@ private class LambdaModelizePhase
 
         redef fun process_nmodule_after(nmodule)
         do
-                var unsafe = new UnsafeModelRegistrer(toolcontext.modelbuilder, nmodule)
+                var unsafe = new UnsafeModelBuilder(toolcontext.modelbuilder, nmodule)
                 for nclassdef in lambda_classes do
+                        unsafe.build_a_mclassdef_inheritance(nclassdef)
                         unsafe.process_default_constructors(nclassdef)
                         var mclass = nclassdef.mclassdef.mclass
                         var mclassdef = nclassdef.mclassdef.as(not null)

@@ -387,6 +387,7 @@ redef class AStdClassdef
 
                 self.init_astdclassdef(null, n_kwredef, visibility, n_classkind, null, n_obra, new Array[Object], n_cbra, n_extern_code_block, n_propdefs, new TKwend)
                 self.mclassdef = mclassdef
+                self.mclass = mclassdef.mclass
         end
 end
 
