@@ -23,7 +23,7 @@ intrude import semantize::typing
 import semantize::lambda
 
 redef class ToolContext
-	var transform_phase: Phase = new TransformPhase(self, [typing_phase, auto_super_init_phase])
+	var transform_phase: Phase = new TransformPhase(self, [lambda_modelize_phase, auto_super_init_phase])
 
 	# --no-shortcut-range
 	var opt_no_shortcut_range: OptionBool = new OptionBool("Always instantiate a range and its iterator on 'for' loops", "--no-shortcut-range")
@@ -226,18 +226,8 @@ end
 redef class ALambdaExpr
         redef fun accept_transform_visitor(v)
         do
-                var current_body: AMethPropdef
-                loop
-                        var p = parent
-                        if p == null then
-                                print "error"
-                                return
-                        end
-                        if p isa AMethPropdef then
-                                current_body = p
-                                break
-                        end
-                end
+                print "ENTER ALambdaExpr::accept_transform_visitor"
+                var top_scope = invoker.as(AMethPropdef)
                 var mclassdef = nmethoddef.mpropdef.mclassdef
                 var mpropdef = mclassdef.mclass.root_init.as(not null)
                 var recv = mclassdef.bound_mtype
@@ -251,7 +241,9 @@ redef class ALambdaExpr
                 var n_newexpr = v.builder.make_new(callsite, null)
                 var variable = new Variable("test")
                 var n_vardecl = v.builder.make_var_decl(variable, n_newexpr)
-                current_body.add_closure(v, n_vardecl)
+                top_scope.add_closure(v, n_vardecl)
+
+                print "IN1 ALambdaExpr::accept_transform_visitor"
 
                 var n_varexpr = v.builder.make_var_read(variable, recv)
                 var mpropdef2 = nmethoddef.mpropdef.as(not null)
@@ -260,6 +252,7 @@ redef class ALambdaExpr
                 var callsite2 = new CallSite(location, recv, mmodule, anchor, recv_is_self, mprop2, mpropdef2, msignature2, erasure_cast)
                 var ncallref = v.builder.make_callref(n_varexpr, callsite2)
                 replace_with(ncallref)
+                print "LEAVING ALambdaExpr::accept_transform_visitor"
         end
 end
 

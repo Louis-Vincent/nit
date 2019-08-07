@@ -543,6 +543,7 @@ redef class ACallrefExpr
 		_n_qid = new AQid
 		_n_qid.n_id = new TId
 		_n_qid.n_id.text = callsite.mproperty.name
+                _n_args = new AListExprs
 		self.callsite = callsite
 		self.mtype = callsite.recv
 		self.is_typed = true
