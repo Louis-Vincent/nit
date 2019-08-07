@@ -2294,7 +2294,7 @@ end
 
 # Base class for all thunk-like function. A thunk is a function whose purpose
 # is to call another function. Like a class wrapper or decorator, a thunk is used
-# to computer things (conversions, log, etc) before or after a function call. It's
+# to compute things (conversions, log, etc) before or after a function call. It's
 # an intermediary between the caller and the callee.
 #
 # The most basic use of a thunk is to unbox its argument before invoking the real callee.
@@ -2336,6 +2336,7 @@ abstract class ThunkFunction
 
         redef fun body_to_c(v)
         do
+                #v.debug "ThunkFunction::body_to_c, mmethoddef: {mmethoddef}"
                 assert not target_recv.need_anchor
                 var frame = v.frame
                 assert frame != null
@@ -2584,6 +2585,11 @@ redef class MMethodDef
 		var modelbuilder = v.compiler.modelbuilder
 		var val = constant_value
 		var node = modelbuilder.mpropdef2node(self)
+                if node != null then
+                        #v.debug "node: {node}, self: {self}, args: {arguments}"
+                else
+                        #v.debug "self: {self}, args: {arguments}"
+                end
 
 		if is_abstract then
 			v.add_raw_throw
@@ -2593,7 +2599,6 @@ redef class MMethodDef
 			v.add_raw_abort
 			return null
 		end
-
 		if node isa APropdef then
 			var oldnode = v.current_node
 			v.current_node = node
@@ -2609,7 +2614,7 @@ redef class MMethodDef
 		else if val != null then
 			v.ret(v.value_instance(val))
 		else
-			abort
+                        #abort
 		end
 		return null
 	end
@@ -3790,6 +3795,7 @@ redef class AVarAssignExpr
 	do
 		var variable = self.variable.as(not null)
 		var i = v.expr(self.n_value, variable.declared_type)
+                #v.debug "varassign: {variable}, {variable.declared_type.as(not null)}, {i}"
 		v.assign(v.variable(variable), i)
 		return i
 	end
@@ -4415,6 +4421,7 @@ redef class ACallrefExpr
         do
                 var recv = v.expr(self.n_expr, null)
                 var res = v.routine_ref_instance(mtype.as(MClassType), recv, callsite.as(not null).mpropdef)
+                v.debug "ACallrefExpr::expr {res}"
                 return res
         end
 end

@@ -847,6 +847,10 @@ class SeparateCompiler
 
 		v.add_decl("/* runtime class {c_name}: {mclass.full_name} (dead={is_dead}; need_corpse={need_corpse})*/")
 
+                if mclass.name.has("Lambda__Object") then
+                        print "ENTER compile_class_to_c: {mclass}, is_dead: {is_dead}, need_corpse: {need_corpse}"
+                end
+
 		# Build class vft
 		if not is_dead or need_corpse then
 			self.provide_declaration("class_{c_name}", "extern const struct class class_{c_name};")

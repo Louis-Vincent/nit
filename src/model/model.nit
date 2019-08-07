@@ -373,7 +373,9 @@ private class MClassDefSorter
 	do
 		var ca = a.mclass
 		var cb = b.mclass
-		if ca != cb then return mmodule.flatten_mclass_hierarchy.compare(ca, cb)
+		if ca != cb then
+                        return mmodule.flatten_mclass_hierarchy.compare(ca, cb)
+                end
 		return mmodule.model.mclassdef_hierarchy.compare(a, b)
 	end
 end

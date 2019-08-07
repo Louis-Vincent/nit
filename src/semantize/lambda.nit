@@ -70,18 +70,20 @@ private class LambdaModelizePhase
                 var unsafe = new UnsafeModelBuilder(toolcontext.modelbuilder, nmodule)
                 for nclassdef in lambda_classes do
                         unsafe.build_a_mclassdef_inheritance(nclassdef)
-                        unsafe.process_default_constructors(nclassdef)
+                        nclassdef.mclassdef.add_in_hierarchy
                         var mclass = nclassdef.mclassdef.mclass
                         var mclassdef = nclassdef.mclassdef.as(not null)
                         unsafe.mclassdef2nclassdef(mclassdef, nclassdef)
                         unsafe.mclass2nclassdef(mclass, nclassdef)
-
                         for obj in nclassdef.n_propdefs do
                                 var nmethdef = obj.as(AMethPropdef)
                                 var mpropdef = nmethdef.mpropdef.as(not null)
                                 unsafe.mpropdef2npropdef(mpropdef, nmethdef)
                         end
+                        unsafe.process_default_constructors(nclassdef)
                 end
+
+                lambda_classes.clear
         end
 end
 
@@ -116,7 +118,12 @@ class LambdaBuilder
         protected var variable_count = 0
         protected var method_count = 0
 
-        init
+        # Used for renaming (preventing name-collision in lambda capture)
+        protected var variable2name: Map[Variable, MAttributeDef] = new HashMap[Variable, MAttributeDef]
+
+        # This function is equivalent to a real init, except it should be done
+        # lazely. Otherwise, we would create a lambda each time we enter a `AMethPropdef`.
+        protected fun init_class
         do
                 var kind = concrete_kind
                 var visibility = public_visibility
@@ -125,9 +132,6 @@ class LambdaBuilder
                 mclassdef = new MClassDef(mmodule, mclass.mclass_type, location)
                 ast_builder = new ASTBuilder(mmodule, mclass.mclass_type)
         end
-
-        # Used for renaming (preventing name-collision in lambda capture)
-        protected var variable2name: Map[Variable, MAttributeDef] = new HashMap[Variable, MAttributeDef]
 
         # Captures and return the attribute of the variable, avoiding any name
         # collision of different variable.
@@ -164,33 +168,35 @@ class LambdaBuilder
         # var attr2 = builder.capture_variable(x)
         # assert attr1.is_same_instance(attr2)
         # ~~~~
-        fun capture_variable(variable: Variable): MAttributeDef
-        do
-                # TODO: free variable capture isn't complete
-                # Currently, this function is never called since scope phase
-                # prevents from capturing free variables.
-                if variable2name.has_key(variable) then
-                        return variable2name[variable]
-                end
-                var new_name = "instance__<>__var{variable_count}"
-                var mprop = new MAttribute(mclassdef, "_" + new_name, location, private_visibility)
-                var mpropdef = new MAttributeDef(mclassdef, mprop, location)
-                mpropdef.static_mtype = variable.declared_type
-                var mreadprop = new MMethod(mclassdef, new_name, location, public_visibility)
-                var mwriteprop = new MMethod(mclassdef, new_name + "=", location, public_visibility)
-                var mreadpropdef = new MMethodDef(mclassdef, mreadprop, location)
-                var mwritepropdef = new MMethodDef(mclassdef, mwriteprop, location)
-                mreadprop.getter_for = mprop
-                mwriteprop.setter_for = mprop
-                variable_count += 1
-                variable.lambda_mattributedef = mpropdef
-                return mpropdef
-        end
+        #fun capture_variable(variable: Variable): MAttributeDef
+        #do
+        #        # TODO: free variable capture isn't complete
+        #        # Currently, this function is never called since scope phase
+        #        # prevents from capturing free variables.
+        #        if variable2name.has_key(variable) then
+        #                return variable2name[variable]
+        #        end
+        #        var new_name = "instance__<>__var{variable_count}"
+        #        var mprop = new MAttribute(mclassdef, "_" + new_name, location, private_visibility)
+        #        var mpropdef = new MAttributeDef(mclassdef, mprop, location)
+        #        mpropdef.static_mtype = variable.declared_type
+        #        var mreadprop = new MMethod(mclassdef, new_name, location, public_visibility)
+        #        var mwriteprop = new MMethod(mclassdef, new_name + "=", location, public_visibility)
+        #        var mreadpropdef = new MMethodDef(mclassdef, mreadprop, location)
+        #        var mwritepropdef = new MMethodDef(mclassdef, mwriteprop, location)
+        #        mreadprop.getter_for = mprop
+        #        mwriteprop.setter_for = mprop
+        #        variable_count += 1
+        #        variable.lambda_mattributedef = mpropdef
+        #        return mpropdef
+        #end
 
         # Produces a new method definition
         fun add_method(body: AExpr, nsignature: ASignature, msignature: MSignature): AMethPropdef
         do
-                var mprop = new MMethod(mclassdef, "lambda__<>__{method_count}", location, public_visibility)
+                # Lazily build mclass and mclassdef iff client request to add a method.
+                if not isset _mclass then init_class
+                var mprop = new MMethod(mclassdef, "routine_<>_{method_count}", location, public_visibility)
                 var mpropdef = new MMethodDef(mclassdef, mprop, location)
                 mpropdef.msignature = msignature
                 var nmethdef = ast_builder.make_method(null, null, mpropdef, nsignature, null, null, null, body)
@@ -199,8 +205,9 @@ class LambdaBuilder
         end
 
 
-        fun finish: AStdClassdef
+        fun finish: nullable AStdClassdef
         do
+                if not isset _mclass then return null
                 var propdefs = mpropdef2node.values
                 var res = ast_builder.make_stdclass(mclassdef, null, null, null, null, new Array[Object], null, propdefs)
                 res.location = location
@@ -259,7 +266,10 @@ class LambdaVisitor
         protected fun shift_scope
         do
                 var lb = scopes.shift
-                nclassdefs.add(lb.finish)
+                var res = lb.finish
+                if res != null then
+                        nclassdefs.add(res)
+                end
         end
 end
 
@@ -304,7 +314,7 @@ redef class ALambdaExpr
                 nmethoddef = v.lambda_builder.add_method(n_expr, n_signature, msignature)
                 invoker = v.node
                 for free_var in free_variables do
-                        v.lambda_builder.capture_variable(free_var)
+                        #v.lambda_builder.capture_variable(free_var)
                 end
                 v.enter_visit_block(self, n_expr)
         end

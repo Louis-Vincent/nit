@@ -335,6 +335,7 @@ redef class AVardeclExpr
         private init make(variable: Variable, expr: AExpr)
         do
                 self.init_avardeclexpr(new TKwvar, new TId, null, new TAssign, expr, null)
+                self.variable = variable
         end
 end
 

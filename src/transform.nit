@@ -231,19 +231,21 @@ redef class ALambdaExpr
                 var mclassdef = nmethoddef.mpropdef.mclassdef
                 var mpropdef = mclassdef.mclass.root_init.as(not null)
                 var recv = mclassdef.bound_mtype
+                print "lambda type : {recv}"
                 var mmodule = mclassdef.mmodule
                 var anchor = null
                 var recv_is_self = false
                 var mprop = mpropdef.mproperty
                 var msignature = mpropdef.msignature.as(not null)
                 var erasure_cast = false
+
                 var callsite = new CallSite(location, recv, mmodule, anchor, recv_is_self, mprop, mpropdef, msignature, erasure_cast)
                 var n_newexpr = v.builder.make_new(callsite, null)
-                var variable = new Variable("test")
-                var n_vardecl = v.builder.make_var_decl(variable, n_newexpr)
-                top_scope.add_closure(v, n_vardecl)
 
-                print "IN1 ALambdaExpr::accept_transform_visitor"
+                var variable = new Variable("test")
+                variable.declared_type = recv
+                var n_varassign = v.builder.make_var_assign(variable, n_newexpr)
+                top_scope.add_closure(v, n_varassign)
 
                 var n_varexpr = v.builder.make_var_read(variable, recv)
                 var mpropdef2 = nmethoddef.mpropdef.as(not null)
@@ -252,7 +254,6 @@ redef class ALambdaExpr
                 var callsite2 = new CallSite(location, recv, mmodule, anchor, recv_is_self, mprop2, mpropdef2, msignature2, erasure_cast)
                 var ncallref = v.builder.make_callref(n_varexpr, callsite2)
                 replace_with(ncallref)
-                print "LEAVING ALambdaExpr::accept_transform_visitor"
         end
 end
 

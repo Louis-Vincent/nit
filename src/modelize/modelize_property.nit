@@ -51,7 +51,12 @@ class UnsafeModelBuilder
 
         fun mclass2nclassdef(mclass: MClass, nclassdef: AClassdef)
         do
-                nmodule.mclass2nclassdef[mclass] = nclassdef
+                if not nmodule.mclass2nclassdef.has_key(mclass) then
+                        nmodule.mclass2nclassdef[mclass] = nclassdef
+                        nclassdef.all_defs = [nclassdef]
+                else
+                        nmodule.mclass2nclassdef[mclass].all_defs.add(nclassdef)
+                end
         end
 
         fun build_a_mclassdef_inheritance(nclassdef: AClassdef)
