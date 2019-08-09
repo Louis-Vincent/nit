@@ -2552,7 +2552,7 @@ redef class ACallrefExpr
 	do
                 super # do the job as if it was a real call
 		var res = callsite.mproperty
-
+                debug "callsite: recv_is_self({callsite.recv_is_self}), recv({callsite.recv}), erasure_cast({callsite.erasure_cast})"
                 var msignature = callsite.mpropdef.msignature
                 var recv = callsite.recv
                 assert msignature != null
@@ -2631,10 +2631,10 @@ redef class ALambdaExpr
                         assert mtype2 != null
                         type_list.push(mtype2)
                         return_type = mtype2
-                        routine_class = v.get_mclass(self, "Fun" + arity.to_s)
+                        routine_class = v.get_mclass(self, "FunRef" + arity.to_s)
                 else
                         # case void
-                        routine_class = v.get_mclass(self, "Proc" + arity.to_s)
+                        routine_class = v.get_mclass(self, "ProcRef" + arity.to_s)
                 end
 
                 if routine_class == null then

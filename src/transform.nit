@@ -228,18 +228,14 @@ redef class ALambdaExpr
         do
                 print "ENTER ALambdaExpr::accept_transform_visitor"
                 var top_scope = invoker.as(AMethPropdef)
+                var tv = new TypeVisitor(v.phase.toolcontext.modelbuilder, top_scope.mpropdef.as(not null))
+
                 var mclassdef = nmethoddef.mpropdef.mclassdef
                 var mpropdef = mclassdef.mclass.root_init.as(not null)
                 var recv = mclassdef.bound_mtype
-                print "lambda type : {recv}"
-                var mmodule = mclassdef.mmodule
-                var anchor = null
-                var recv_is_self = false
-                var mprop = mpropdef.mproperty
-                var msignature = mpropdef.msignature.as(not null)
-                var erasure_cast = false
+                var callsite = tv.build_callsite_by_propdef(top_scope, recv, mpropdef, false)
+                assert callsite != null
 
-                var callsite = new CallSite(location, recv, mmodule, anchor, recv_is_self, mprop, mpropdef, msignature, erasure_cast)
                 var n_newexpr = v.builder.make_new(callsite, null)
 
                 var variable = new Variable("test")
@@ -248,12 +244,12 @@ redef class ALambdaExpr
                 top_scope.add_closure(v, n_varassign)
 
                 var n_varexpr = v.builder.make_var_read(variable, recv)
-                var mpropdef2 = nmethoddef.mpropdef.as(not null)
-                var mprop2 = mpropdef2.mproperty
-                var msignature2 = mpropdef2.msignature.as(not null)
-                var callsite2 = new CallSite(location, recv, mmodule, anchor, recv_is_self, mprop2, mpropdef2, msignature2, erasure_cast)
+                var callsite2 = tv.build_callsite_by_propdef(self, recv, nmethoddef.mpropdef.as(not null), false)
+                assert callsite2 != null
                 var ncallref = v.builder.make_callref(n_varexpr, callsite2)
                 replace_with(ncallref)
+                top_scope.validate
+                #top_scope.dump_tree
         end
 end
 

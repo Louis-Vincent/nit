@@ -655,6 +655,8 @@ class MClassDef
 		self.mclass = bound_mtype.mclass
 		mmodule.mclassdefs.add(self)
 		mclass.mclassdefs.add(self)
+                # mmodule.flatten_mclass_hierarchy_cache == null
+                mmodule.flatten_mclass_hierarchy_cache = null
 		if mclass.intro_mmodule == mmodule then
 			assert not isset mclass._intro
 			mclass.intro = self
