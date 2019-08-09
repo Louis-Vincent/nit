@@ -16,7 +16,10 @@
 
 # Code generator for `Routine` type hierarchy
 
-redef class Writer
+# Writer who adds new line at the end of each `writeln`.
+# Supports tabs indentation
+abstract class WriterLn
+        super Writer
         var tabs = 0
 
         fun writeln(s: Text)
@@ -26,6 +29,12 @@ redef class Writer
                 end
                 write(s + "\n")
         end
+end
+
+
+class FileWriterLn
+        super FileWriter
+        super WriterLn
 end
 
 fun gen_generics(nargs: Int): Array[String]
@@ -45,7 +54,7 @@ class FunTypeWriter
         var with_return = false
         var annotation = "is abstract"
 
-        fun write(writer: Writer)
+        fun write(writer: WriterLn)
         do
                 var i = nb_formal_types
                 var generics = gen_generics(i)
@@ -84,7 +93,7 @@ class FunTypeWriter
 end
 
 
-fun generate_functypes(n: Int, writer: Writer)
+fun generate_functypes(n: Int, writer: WriterLn)
 do
         writer.writeln("""
 # This file is part of NIT ( http://www.nitlanguage.org ).
@@ -134,5 +143,5 @@ do
         end
 end
 
-var fw = new FileWriter.open("functional_types.nit")
+var fw = new FileWriterLn.open("functional_types.nit")
 generate_functypes(20, fw)
