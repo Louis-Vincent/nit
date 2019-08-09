@@ -23,6 +23,10 @@ import iter_extras
 # Warning: The Entry API is not thread-safe, i.e concurrent entry manipulation
 # might put the Map in a inconsistent state. In multithreading environment, you
 # should use guards before creating an `Entry`.
+
+module func_collections
+import iter_extras
+
 abstract class Entry[K,V]
         var map: Map[K,V]
         var key: K
