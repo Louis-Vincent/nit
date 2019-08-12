@@ -2652,17 +2652,9 @@ redef class ALambdaExpr
                 # we must instantiate new `MClassDef` and `MMethoDef`. They are
                 # used by return exprs who verify if the return type match
                 # with the current method signature.
-                #var mclassdef = new MClassDef(v.mmodule, mclasstype, mtype.location)
-                #var mmethod = v.mmodule.try_get_primitive_method("call", mclasstype.mclass).as(not null)
-                #var mmethdef = mmethod.lookup_first_definition(v.mmodule, mtype.as(not null))
-
-                ## lambda function's location = lambda class's location
-                #var mmethdef2 = new MMethodDef(mclassdef, mmethdef.mproperty, mclassdef.location)
-                #mmethdef2.msignature = msignature
-                #var v2 = new TypeVisitor(v.modelbuilder, mmethdef2)
-
                 var no_location = new Location(null, 0, 0, 0, 0)
-                var mock_mclassdef = new NullMClassDef(v.mmodule, mclasstype, no_location)
+                var mock_mclass = new NullMClass(v.mmodule, "MockClass", no_location, null, concrete_kind, public_visibility)
+                var mock_mclassdef = new NullMClassDef(v.mmodule, mock_mclass.mclass_type, no_location)
                 var mock_mprop = new NullMMethod(mock_mclassdef, "mock", no_location, public_visibility)
                 var mock_mpropdef = new NullMMethodDef(mock_mclassdef, mock_mprop, no_location)
                 mock_mpropdef.msignature = self.msignature
@@ -2686,28 +2678,49 @@ redef class ALambdaExpr
 	end
 end
 
+private class NullMClass
+        super MClass
+
+        redef init is
+                nosuper
+        do
+                # Do nothing, prevents side effects
+        end
+
+        redef fun to_s do return "NullMClass"
+end
+
 private class NullMClassDef
         super MClassDef
-        redef init
+        redef init is
+                nosuper
         do
-                 # Do nothing, prevents side effects
+                self.mclass = bound_mtype.mclass
         end
+
+        redef fun to_s do return "NullMClassDef"
 end
 
 private class NullMMethod
         super MMethod
-        redef init
+        redef init is
+                nosuper
         do
                 # Do nothing
         end
+
+        redef fun to_s do return "NullMMethod"
 end
 
 # A `MMethodDef` not bound to any module.
 # Its mproperty and mclassdef are
 private class NullMMethodDef
         super MMethodDef
-        redef init
+        redef init is
+                nosuper
         do
                 # Do nothing
         end
+
+        redef fun to_s do return "NullMMethodDef"
 end
