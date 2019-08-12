@@ -128,9 +128,9 @@ class ASTBuilder
 		return new AMethPropdef.make(n_visibility, tk_redef, mmethoddef, n_signature, n_annotations, n_extern_calls, n_extern_code_block, n_block)
 	end
 
-        fun make_callref(recv: AExpr, callsite: CallSite): ACallrefExpr
+        fun make_callref(recv: AExpr, callsite: CallSite, routine_type: MType): ACallrefExpr
         do
-                return new ACallrefExpr.make(recv, callsite)
+                return new ACallrefExpr.make(recv, callsite, routine_type)
         end
 
         # Makes a new class definition.
@@ -537,7 +537,7 @@ redef class ACallExpr
 end
 
 redef class ACallrefExpr
-        private init make(recv: AExpr, callsite: CallSite)
+        private init make(recv: AExpr, callsite: CallSite, routine_type: MType)
         do
                 self._n_expr = recv
                 _n_amp = new TAmp
@@ -546,7 +546,7 @@ redef class ACallrefExpr
 		_n_qid.n_id.text = callsite.mproperty.name
                 _n_args = new AListExprs
 		self.callsite = callsite
-		self.mtype = callsite.recv
+		self.mtype = routine_type
 		self.is_typed = true
         end
 end
