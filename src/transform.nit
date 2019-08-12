@@ -246,7 +246,7 @@ redef class ALambdaExpr
                 var n_varexpr = v.builder.make_var_read(variable, recv)
                 var callsite2 = tv.build_callsite_by_propdef(self, recv, nmethoddef.mpropdef.as(not null), false)
                 assert callsite2 != null
-                var ncallref = v.builder.make_callref(n_varexpr, callsite2)
+                var ncallref = v.builder.make_callref(n_varexpr, callsite2, mtype.as(not null))
                 replace_with(ncallref)
                 top_scope.validate
                 #top_scope.dump_tree
