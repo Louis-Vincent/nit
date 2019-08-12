@@ -2603,7 +2603,7 @@ end
 
 redef class ALambdaExpr
         var msignature: MSignature is noinit
-        var mclassdef: MClassDef is noinit
+        #var mclassdef: MClassDef is noinit
 	redef fun accept_typing(v)
 	do
                 var signature = n_signature
@@ -2642,25 +2642,31 @@ redef class ALambdaExpr
                         return
                 end
 
-                msignature = new MSignature(param_list, return_type)
+                self.msignature = new MSignature(param_list, return_type)
 
                 # Resolved the type here
-                mtype = routine_class.get_mtype(type_list)
-                var mclasstype = mtype.as(MClassType)
+                self.mtype = routine_class.get_mtype(type_list)
+                var mclasstype = self.mtype.as(MClassType)
+
                 # Before doing the typing analysis inside the lambda body,
                 # we must instantiate new `MClassDef` and `MMethoDef`. They are
                 # used by return exprs who verify if the return type match
                 # with the current method signature.
-                var mclassdef = new MClassDef(v.mmodule, mclasstype, mtype.location)
-                var mmethod = v.mmodule.try_get_primitive_method("call", mclasstype.mclass).as(not null)
-                var mmethdef = mmethod.lookup_first_definition(v.mmodule, mtype.as(not null))
+                #var mclassdef = new MClassDef(v.mmodule, mclasstype, mtype.location)
+                #var mmethod = v.mmodule.try_get_primitive_method("call", mclasstype.mclass).as(not null)
+                #var mmethdef = mmethod.lookup_first_definition(v.mmodule, mtype.as(not null))
 
-                # lambda function's location = lambda class's location
-                var mmethdef2 = new MMethodDef(mclassdef, mmethdef.mproperty, mclassdef.location)
-                mmethdef2.msignature = msignature
-                var v2 = new TypeVisitor(v.modelbuilder, mmethdef2)
+                ## lambda function's location = lambda class's location
+                #var mmethdef2 = new MMethodDef(mclassdef, mmethdef.mproperty, mclassdef.location)
+                #mmethdef2.msignature = msignature
+                #var v2 = new TypeVisitor(v.modelbuilder, mmethdef2)
 
-
+                var no_location = new Location(null, 0, 0, 0, 0)
+                var mock_mclassdef = new NullMClassDef(v.mmodule, mclasstype, no_location)
+                var mock_mprop = new NullMMethod(mock_mclassdef, "mock", no_location, public_visibility)
+                var mock_mpropdef = new NullMMethodDef(mock_mclassdef, mock_mprop, no_location)
+                mock_mpropdef.msignature = self.msignature
+                var v2 = new TypeVisitor(v.modelbuilder, mock_mpropdef)
                 var nblock = self.n_expr
 		if nblock == null then return
 
@@ -2678,4 +2684,30 @@ redef class ALambdaExpr
 			v2.error(self, "Error: reached end of function; expected `return` with a value.")
 		end
 	end
+end
+
+private class NullMClassDef
+        super MClassDef
+        redef init
+        do
+                 # Do nothing, prevents side effects
+        end
+end
+
+private class NullMMethod
+        super MMethod
+        redef init
+        do
+                # Do nothing
+        end
+end
+
+# A `MMethodDef` not bound to any module.
+# Its mproperty and mclassdef are
+private class NullMMethodDef
+        super MMethodDef
+        redef init
+        do
+                # Do nothing
+        end
 end
