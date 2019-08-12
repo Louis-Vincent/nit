@@ -321,13 +321,11 @@ class SeparateCompiler
 
 	# colorize classe properties
 	fun do_property_coloring do
-
 		var rta = runtime_type_analysis
 
 		# Class graph
 		var mclasses = mainmodule.flatten_mclass_hierarchy
 		class_conflict_graph = mclasses.to_conflict_graph
-
 		# Prepare to collect elements to color and build layout with
 		var mmethods = new HashMap[MClass, Set[PropertyLayoutElement]]
 		var mattributes = new HashMap[MClass, Set[MAttribute]]
@@ -339,14 +337,15 @@ class SeparateCompiler
 			mmethods[mclass] = new HashSet[PropertyLayoutElement]
 			mattributes[mclass] = new HashSet[MAttribute]
 		end
-
 		# Pre-collect known live things
 		if rta != null then
 			for m in rta.live_methods do
+                                assert mmethods.has_key(m.intro_mclassdef.mclass)
 				mmethods[m.intro_mclassdef.mclass].add m
 			end
 			for m in rta.live_super_sends do
 				var mclass = m.mclassdef.mclass
+                                assert mmethods.has_key(mclass)
 				mmethods[mclass].add m
 			end
 		end
@@ -378,7 +377,6 @@ class SeparateCompiler
 				end
 			end
 		end
-
 		# methods coloration
 		var meth_colorer = new POSetGroupColorer[MClass, PropertyLayoutElement](class_conflict_graph, mmethods)
 		var method_colors = meth_colorer.colors
@@ -422,8 +420,6 @@ class SeparateCompiler
 			# Do not need to resolve attributes as only the position is used
 			attr_tables[mclass] = attr_colorer.build_layout(mclass)
 		end
-
-
 	end
 
 	# colorize live types of the program
@@ -846,10 +842,6 @@ class SeparateCompiler
 		var need_corpse = is_dead and mtype.is_c_primitive or mclass.kind == extern_kind or mclass.kind == enum_kind
 
 		v.add_decl("/* runtime class {c_name}: {mclass.full_name} (dead={is_dead}; need_corpse={need_corpse})*/")
-
-                if mclass.name.has("Lambda__Object") then
-                        print "ENTER compile_class_to_c: {mclass}, is_dead: {is_dead}, need_corpse: {need_corpse}"
-                end
 
 		# Build class vft
 		if not is_dead or need_corpse then
