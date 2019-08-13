@@ -226,8 +226,7 @@ end
 redef class ALambdaExpr
         redef fun accept_transform_visitor(v)
         do
-                print "ENTER ALambdaExpr::accept_transform_visitor"
-                var top_scope = invoker.as(AMethPropdef)
+                var top_scope = top_scope.as(AMethPropdef)
                 var tv = new TypeVisitor(v.phase.toolcontext.modelbuilder, top_scope.mpropdef.as(not null))
 
                 var mclassdef = nmethoddef.mpropdef.mclassdef
@@ -238,7 +237,8 @@ redef class ALambdaExpr
 
                 var n_newexpr = v.builder.make_new(callsite, null)
 
-                var variable = new Variable("test")
+                var var_name = mpropdef.name.to_lower + "_singleton_inst"
+                var variable = new Variable(var_name)
                 variable.declared_type = recv
                 var n_varassign = v.builder.make_var_assign(variable, n_newexpr)
                 top_scope.add_closure(v, n_varassign)
@@ -249,7 +249,6 @@ redef class ALambdaExpr
                 var ncallref = v.builder.make_callref(n_varexpr, callsite2, mtype.as(not null))
                 replace_with(ncallref)
                 top_scope.validate
-                #top_scope.dump_tree
         end
 end
 

@@ -43,6 +43,7 @@
 #       end
 # end
 # ~~~~
+
 module lambda
 
 import model_base
@@ -91,7 +92,9 @@ class LambdaNameGen
         protected var count = 0
         fun next: String
         do
-                return "Lambda__Object__<>__{count}"
+                var name = "LambdaObject_<>{count}"
+                count += 1
+                return name
         end
 end
 
@@ -196,7 +199,7 @@ class LambdaBuilder
         do
                 # Lazily build mclass and mclassdef iff client request to add a method.
                 if not isset _mclass then init_class
-                var mprop = new MMethod(mclassdef, "routine_<>_{method_count}", location, public_visibility)
+                var mprop = new MMethod(mclassdef, "routine_{method_count}", location, public_visibility)
                 var mpropdef = new MMethodDef(mclassdef, mprop, location)
                 mpropdef.msignature = msignature
                 var nmethdef = ast_builder.make_method(null, null, mpropdef, nsignature, null, null, null, body)
@@ -304,18 +307,17 @@ redef class ANode
 end
 
 redef class ALambdaExpr
-        var invoker: ANode is noinit
+        var top_scope: ANode is noinit
         var nmethoddef: AMethPropdef is noinit
         redef fun accept_lambda_modelize(v)
         do
-                print "ENTER ALambdaExpr::accept_lambda_modelize"
                 var n_expr = self.n_expr
                 if n_expr == null then return
                 nmethoddef = v.lambda_builder.add_method(n_expr, n_signature, msignature)
-                invoker = v.node
-                for free_var in free_variables do
-                        #v.lambda_builder.capture_variable(free_var)
-                end
+                top_scope = v.node
+                #for free_var in free_variables do
+                #v.lambda_builder.capture_variable(free_var)
+                #end
                 v.enter_visit_block(self, n_expr)
         end
 end
