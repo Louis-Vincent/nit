@@ -15,4 +15,5 @@
 # Process bodies of methods in regard with the model.
 module semantize
 
-import auto_super_init
+#import auto_super_init
+import class_macro
