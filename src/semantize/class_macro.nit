@@ -6,16 +6,46 @@ import parser_util
 intrude import parser
 
 redef class ToolContext
-        var class_macro_phase: Phase = new ClassMacroPhase(self, [typing_phase])
+        var metafactory: MetaClassFactory is lazy do
+                return new MetaClassFactory(modelbuilder)
+        end
+        var meta_class_hierarchy = new POSet[MetaClass]
+        var meta_class_probing_phase: Phase = new MetaProbingPhase(self, [typing_phase])
+        var meta_modeling_phase: Phase = new MetaModelingPhase(self, [meta_class_probing_phase])
 end
 
-private class ClassMacroPhase
+redef class AClassdef
+        var metaclassdefs: SequenceRead[AAnnotPropdef] is lazy do
+                var res = new Array[AAnnotPropdef]
+                for na in n_propdefs do
+                        if na isa AAnnotPropdef and na.name == "meta" then res.add na
+                end
+                return res
+        end
+end
+
+private class MetaProbingPhase
+        redef fun process_nclassdef(nclassdef)
+        do
+                var mclassdef = nclasdef.mclassdef
+                assert mclassdef != null
+                for st in mclassdef.supertypes do
+                        if st.name == "MetaClass" and name != "MetaClass" then
+                                toolcontext.metafactory.build(mclassdef)
+                        end
+                end
+        end
+end
+
+private class MetaModelingPhase
         super Phase
+
         redef fun process_nclassdef(nclassdef)
         do
                 var mclassdef = nclassdef.mclassdef
                 assert mclassdef != null
                 if mclassdef.name == "Point" then
+                        print "{nclassdef.metaclassdefs}"
                         print "{nclassdef.mclassdef.as(not null)}"
                         #var logger = new Logger(mclassdef, toolcontext)
                         #logger.transform
@@ -26,6 +56,8 @@ private class ClassMacroPhase
 end
 
 abstract class MetaObject
+        type AST: ANode
+        var source: AST is noinit
 end
 
 class Attribute
@@ -39,35 +71,43 @@ class Method
 
         protected var mpropdef: MMethodDef
         protected var npropdef: AMethPropdef
+end
 
-        fun body: nullable AExpr
-        do
-                return npropdef.n_block
-        end
-
-        fun body=(aexpr: AExpr)
-        do
-                npropdef.n_block = aexpr
-        end
-
-        fun is_abstract: Bool
-        do
-                return false
-        end
+class Module
+        super MetaObject
 end
 
 class MetaClass
         super MetaObject
-        protected var mclassdef: MClassDef
-        protected var toolcontext: ToolContext
-        protected var methods: Array[Method] is noinit
-        protected var attributes: Array[Attribute] is noinit
-        protected var supers: Array[MetaClass] is noinit
-        protected var modelbuilder: ModelBuilder is noinit
 
+        redef type AST: AClassdef
+
+        var parent: MetaClass is noinit
+        var methods: Array[Method] is noinit
+
+        fun transform
+        do
+        end
+end
+
+class NullMetaClass
+        super MetaClass
+end
+
+class MetaClassFactory
+        protected var modelbuilder: ModelBuilder
+        protected var root: MetaClass is noinit
+        protected var hierarchy = new POSet[MetaClass]
         init
         do
-                modelbuilder = toolcontext.modelbuilder
+                root = new MetaClass
+                root.parent = root
+                hierarchy.add_node(root)
+        end
+
+        fun build(mclassdef: MClassDef): MetaClass
+        do
+                var methods = new Array[Method]
                 for mpropdef in mclassdef.mpropdefs do
                         if mpropdef isa MMethodDef then
                                 var npropdef = modelbuilder.mpropdef2node(mpropdef)
@@ -76,83 +116,11 @@ class MetaClass
                                 if not npropdef isa AMethPropdef then continue
                                 var method = new Method(mpropdef, npropdef)
                                 methods.push(method)
-                        else if mpropdef isa MAttributeDef then
-                                print "mattrdef: {mpropdef}"
                         end
                 end
-                supers = new Array[MetaClass]
+                var metaclass = new MetaClass
+                metaclass.methods = methods
+                metaclass.parent = self.root
+                return metaclass
         end
-
-        fun add_attribute(attr: Attribute)
-        do
-        end
-
-        fun add_method(method: Method)
-        do
-        end
-
-        fun transform
-        do
-        end
-
-        protected fun parse(source: String): ANode
-        do
-                return toolcontext.parse_something(source)
-        end
-
 end
-
-#class TypeBuilder
-#        protected var mb: ModelBuilder
-#        fun build_metatype(mclassdef: MClassDef): Type
-#        do
-#                var nattrdefs = mb.collect_attr_propdef(mclassdef)
-#                var nmethdefs = new Array[AMethPropdef]
-#                for mpropdef in mclassdef.mpropdefs do
-#                        var node = mb.mpropdef2node(mpropdef)
-#                        assert node != null and node isa AMethPropdef
-#                        nmethdefs.push(node)
-#                end
-#                return new Type(mclassdef, new Array[Attribute], new Array[Method])
-#        end
-#
-#        protected fun build_meta_method(npropdef: AMethPropdef)
-#        do
-#                var mpropdef = npropdef.mpropdef
-#                var params = new Array[Parameter]
-#                if mpropdef.msignature != null then
-#                        var msignature = mpropdef.msignature.as(not null)
-#                        msignature.mparameter
-#                end
-#        end
-#
-#        protected fun build_meta_attr(npropdef: AAttrPropdef)
-#        do
-#        end
-#end
-#
-#abstract class Property
-#end
-#
-#class Attribute
-#        super Property
-#        protected var mpropdef: MAttributeDef
-#end
-#
-#class Method
-#        super Property
-#        protected var mpropdef: MMethodDef
-#        var body: nullable AExpr = null
-#        var is_redef: Bool = false
-#        #var return_type: nullable Type = null
-#        #var is_redef: Bool = false
-#        redef init
-#        do
-#        end
-#end
-#
-#class Type
-#        protected var mclassdef: MClassDef
-#        protected var attributes: SequenceRead[Attribute]
-#        protected var methods: SequenceRead[Method]
-#end

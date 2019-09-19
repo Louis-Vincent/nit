@@ -10,7 +10,8 @@ class Logger
 end
 
 class Point
-        is meta(Logger)
+        meta(Logger)
+
         var x: Int
         var y: Int
 

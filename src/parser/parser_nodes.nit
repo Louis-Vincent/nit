@@ -1473,7 +1473,6 @@ class ASuperPropdef
 	var n_type: AType is writable, noinit
 end
 
-
 # Declaration of callbacks for extern methods
 class AExternCalls
 	super Prod
@@ -2475,7 +2474,6 @@ class ACallrefExpr
        # The `&` operator
        var n_amp: TAmp is writable, noinit
 end
-
 
 # A call to `super`. OR a call of a super-constructor
 class ASuperExpr
