@@ -473,7 +473,6 @@ class GlobalCompilerVisitor
                 end
                 var thunk = new CustomizedThunkFunction(mmethoddef, my_recv.mtype.as(MClassType))
                 thunk.polymorph_call_flag = not my_recv.is_exact #true
-                #thunk.force_polymorphism = not my_recv.is_exact
                 compiler.todo(method)
                 compiler.todo(thunk)
 
@@ -1122,17 +1121,17 @@ private class CustomizedRuntimeFunction
                 # class A[E]
                 #       fun toto(x: E)
                 #       do
-                #               ...do something with x...
+                #               # ...do something with x...
                 #       end
                 # end
                 # end
                 # var a = new A[nullable Int]
                 # var f = &a.toto
-                # f.call(null) <-- Will produce a proper C callsite, but it will
-                #               -- produce unreachable (dead code) for type checking
-                #               -- and covariance. Thus, creating warnings when
-                #               -- compiling in global. However, if you ignore
-                #               -- those warnings, the binary works perfectly fine.
+                # f.call(null)  # Will produce a proper C callsite, but it will
+                #               # produce unreachable (dead code) for type checking
+                #               # and covariance. Thus, creating warnings when
+                #               # compiling in global. However, if you ignore
+                #               # those warnings, the binary works perfectly fine.
                 # ~~~~
                 var intromclassdef = self.mmethoddef.mproperty.intro_mclassdef
                 var is_callref = v.compiler.all_routine_types_name.has(intromclassdef.name)
@@ -1165,11 +1164,11 @@ private class CustomizedRuntimeFunction
 	end
 end
 
+# Thunk implementation for global compiler.
+# For more detail see `abstract_compiler::ThunkFunction` documentation.
 class CustomizedThunkFunction
         super ThunkFunction
         super CustomizedRuntimeFunction
-
-        #var force_polymorphism = false
 
         redef fun c_name
         do
