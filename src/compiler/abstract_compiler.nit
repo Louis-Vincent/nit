@@ -625,19 +625,19 @@ abstract class AbstractCompiler
 	# The targeted specific platform
 	var target_platform: Platform is noinit
 
-        # All methods who already has a callref_thunk generated for
-        var compiled_callref_thunk = new HashSet[MMethodDef]
+	# All methods who already has a callref_thunk generated for
+	var compiled_callref_thunk = new HashSet[MMethodDef]
 
-        var all_routine_types_name: Set[String] do
-                var res = new HashSet[String]
-                for name in ["Fun", "Proc", "FunRef", "ProcRef"] do
-                        # Currently there's 20 arity per func type
-                        for i in [0..20[ do
-                                res.add("{name}{i}")
-                        end
-                end
-                return res
-        end
+	var all_routine_types_name: Set[String] do
+		var res = new HashSet[String]
+		for name in ["Fun", "Proc", "FunRef", "ProcRef"] do
+			# Currently there's 20 arity per func type
+			for i in [0..20[ do
+				res.add("{name}{i}")
+			end
+		end
+		return res
+	end
 
 	init
 	do
@@ -2544,19 +2544,6 @@ redef class MClassType
 	end
 end
 
-redef class MSignature
-        fun change_all_mtype_for(mtype: MType): MSignature
-        do
-                var ps = new Array[MParameter]
-                for p in mparameters do
-                        ps.push(new MParameter(p.name, mtype, p.is_vararg))
-                end
-                var ret: nullable MType = null
-                if return_mtype != null then ret = mtype
-                return new MSignature(ps, ret)
-        end
-end
-
 redef class MPropDef
 	type VISITOR: AbstractCompilerVisitor
 end
@@ -2723,6 +2710,7 @@ redef class AMethPropdef
 		var cname = mpropdef.mclassdef.mclass.name
 		var ret = mpropdef.msignature.return_mtype
                 var compiler = v.compiler
+
                 # WARNING: we must not resolve the return type when it's a functional type.
                 # Otherwise, we get a compile error exactly here. This weird behavior doesn't affect
                 # the inner mecanics of callref since the return type is already solved by
@@ -2730,6 +2718,10 @@ redef class AMethPropdef
                 if ret != null and not compiler.all_routine_types_name.has(cname) then
 			ret = v.resolve_for(ret, arguments.first)
 		end
+
+		# WARNING: We don't want to adapt the signature when it's a funref type, since
+		# routine_ref_call needs to do some processing over the argument in their original form.
+		# Otherwise, we cannot properly call the underlying function.
 		if pname != "==" and pname != "!=" and pname != "call" and not compiler.all_routine_types_name.has(cname) then
 			v.adapt_signature(mpropdef, arguments)
 			v.unbox_signature_extern(mpropdef, arguments)

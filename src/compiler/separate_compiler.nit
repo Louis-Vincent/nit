@@ -283,7 +283,7 @@ class SeparateCompiler
 			return self.box_kinds[self.mainmodule.pointer_type.mclass]
 		else
 			return self.box_kinds[mclass]
-                end
+		end
 	end
 
 	fun compile_color_consts(colors: Map[Object, Int]) do
@@ -2260,8 +2260,8 @@ class SeparateCompilerVisitor
                 # ~~~~nitish
                 # class A; def toto do print "toto"; end
                 # var a = new A
-                # var f = &a.toto <- `a` is the underlying receiver
-                # f.call <- here `f` is the routine receiver
+                # var f = &a.toto # `a` is the underlying receiver
+                # f.call # here `f` is the routine receiver
                 # ~~~~
                 var routine = arguments.first
 
@@ -2341,21 +2341,19 @@ redef class MMethodDef
         do
                 var res = callref_thunk_cache
                 if res == null then
-                        #var runtime_function = virtual_runtime_function
                         var object_type = mclassdef.mmodule.object_type
                         var nullable_object = object_type.as_nullable
-                        var msignature2 = msignature.change_all_mtype_for(nullable_object)
+			var ps = new Array[MParameter]
+
+			# Replace every argument type by nullable object
+			for p in msignature.mparameters do
+				ps.push(new MParameter(p.name, nullable_object, p.is_vararg))
+			end
+			var ret: nullable MType = null
+			if msignature.return_mtype != null then ret = nullable_object
+			var msignature2 = new MSignature(ps, ret)
                         var intromclassdef = mproperty.intro.mclassdef
 
-                        #var introrecv = intromclassdef.bound_mtype
-                        ## If the thunk signature is equivalent to its
-                        ## virtual counterpart, then nothing to do.
-                        #print "recv vs intro : {recv_mtype} vs {introrecv}"
-                        #if msignature2.c_equiv(runtime_function.called_signature) and recv_mtype == introrecv then
-                        #        callref_thunk_cache = res
-                        #        return runtime_function
-                        #end
-                        # receiver cannot be null
                         res = new SeparateThunkFunction(self, recv_mtype, msignature2, "THUNK_{c_name}", mclassdef.bound_mtype)
                         res.polymorph_call_flag = true
                         callref_thunk_cache = res
