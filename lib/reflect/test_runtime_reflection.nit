@@ -1,5 +1,4 @@
-import reflection
-import symbol
+import runtime1
 
 redef class Object
 
@@ -31,13 +30,13 @@ class Toto
 end
 
 var m = new RuntimeMirror
-var toto_class: ClassMirror = m.get_class("Toto")
+var toto_class: ClassMirror = get_class(sym("Toto"))
 
 var t = new Toto(1)
-var im: InstanceMirror = m.reflect(im)
-var mm_incr1: MethodMirror = im.method("incr")
-var mm_incr2 = toto_class.method("incr")
-var mm_toto = im.method("toto")
+var im: InstanceMirror = reflect(t)
+var mm_incr1: MethodMirror = im.method(sym("incr"))
+var mm_incr2 = toto_class.method(sym("incr"))
+var mm_toto = im.method(sym("toto"))
 
 assert mm_toto1 == mm_toto2
 
