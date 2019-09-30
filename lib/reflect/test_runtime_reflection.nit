@@ -10,7 +10,7 @@ redef class Object
                 var res = new Array[String]
                 # fm: FieldMirror
                 for fm in im.fields do
-                        res.push("({fm.name}: {fm.type} = {fm.value})")
+                        res.push("({fm.name}: {fm.ty} = {fm.value})")
                 end
                 return "{im.klazz.name}'s fields = [{res.join(", ")}]"
         end

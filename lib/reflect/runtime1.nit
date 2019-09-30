@@ -1,78 +1,45 @@
-import symbol2
+import runtime
+import common
 
 redef class Sys
         var mirror: RuntimeMirror = new RuntimeMirror
+	var class_symbols = new HashMap[Symbol, ClassMirror]
 
-        fun get_class(s: Symbol): ClassMirror
-        do
-                return mirror.get_class(s)
-        end
-
-        fun reflect(instance: Object): InstanceMirror
-        do
-        end
+        fun get_class(s: Symbol): nullable ClassMirror do return mirror.get_class(s)
 end
 
-class RuntimeMirror
-        super Environment
+redef class RuntimeMirror
+
+	protected var classsym2mirror: Map[Symbol, ClassMirror] = new HashMap[Symbol, ClassMirror]
+
+	redef fun get_class(classname): nullable ClassMirror
+	do
+		# TODO: check if already loaded, otherwise try load, otherwise null
+		return classsym2mirror.get_or_null(classname)
+	end
+
+	# TODO
+	# redef fun reflect(instance: Object): InstanceMirror is abstract
 end
 
-abstract class Mirror
-        var name: String
-        var mirror: Mirror
+redef class TypeMirror
+
+	# Makes an instance and initializes its content with `args`.
+	# This is the same as `new Foo(args...)`.
+	fun make_instance(args: Object...): Object
+	do
+		var res = constr.send(args)
+		return res.as(not null)
+	end
 end
 
-abstract class ClassMirror
-        super Mirror
-
-        fun method(msym: Symbol): MethodMirror is abstract
-        fun field(fsym: Symbol): FieldMirror is abstract
+redef class MethodMirror
+	# Sends this message to the first argument passed in parameter
+	fun send(args: Object...): nullable Object is abstract
 end
 
-class Signature
-        var args: Sequence[ClassMirror]
-        var return_type: nullable ClassMirror
-end
-
-abstract class MethodMirror
-        super Mirror
-        var signature: Signature
-
-        fun arity: Int do return signature.args.length
-end
-
-abstract class FieldMirror
-        super Mirror
-        var type: ClassMirror
-end
-
-abstract class Environment
-        super Mirror
-end
-
-abstract class InstanceMirror
-        super Mirror
-        var instance: Object
-
-        fun method(msym: Symbol): MethodMirror
-        do
-                return type.method(msym)
-        end
-        fun send(mm: MethodMirror, args: Object...): nullable Object is abstract
-end
-
-class RTInstance
-        super InstanceMirror
-end
-
-class RTMethod
-end
-
-class RTClass
-        super ClassMirror
-end
-
-class RTField
-        super
-
+redef class InstanceMirror
+	fun send(mm: MethodMirror, args: Object...): nullable Object do
+		return mm.send(instance, args)
+	end
 end
