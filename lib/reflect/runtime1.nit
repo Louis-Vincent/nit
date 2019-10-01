@@ -5,21 +5,27 @@ redef class Sys
         var mirror: RuntimeMirror = new RuntimeMirror
 	var class_symbols = new HashMap[Symbol, ClassMirror]
 
-        fun get_class(s: Symbol): nullable ClassMirror do return mirror.get_class(s)
+	# Unsafely try to load a class from the provided symbol
+	fun klass(s: Symbol): ClassMirror do return klass_or_null(s).as(not null)
+
+	fun klass_or_null(s: Symbol): nullable ClassMirror do return mirror.klass(s)
+
+	# Reflects a living object
+	fun reflect(instance: Object): InstanceMirror
+	do
+		return mirror.reflect(instance)
+	end
 end
 
 redef class RuntimeMirror
 
 	protected var classsym2mirror: Map[Symbol, ClassMirror] = new HashMap[Symbol, ClassMirror]
 
-	redef fun get_class(classname): nullable ClassMirror
+	redef fun klass(classname): nullable ClassMirror
 	do
 		# TODO: check if already loaded, otherwise try load, otherwise null
 		return classsym2mirror.get_or_null(classname)
 	end
-
-	# TODO
-	# redef fun reflect(instance: Object): InstanceMirror is abstract
 end
 
 redef class TypeMirror
@@ -30,16 +36,5 @@ redef class TypeMirror
 	do
 		var res = constr.send(args)
 		return res.as(not null)
-	end
-end
-
-redef class MethodMirror
-	# Sends this message to the first argument passed in parameter
-	fun send(args: Object...): nullable Object is abstract
-end
-
-redef class InstanceMirror
-	fun send(mm: MethodMirror, args: Object...): nullable Object do
-		return mm.send(instance, args)
 	end
 end

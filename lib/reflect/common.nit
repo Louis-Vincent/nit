@@ -18,7 +18,14 @@ end
 # ~~~~
 abstract class Environment
         super Mirror
-	fun get_class(s: Symbol): nullable ClassMirror is abstract
+	# Tries to build a class mirror from the provided symbol `s`.
+	# If the class doesn't exist at runtime, then returns null.
+	fun klass(s: Symbol): nullable ClassMirror is abstract
+end
+
+# Entity associated with a symbol
+abstract class Symbolic
+	fun to_sym: Symbol is abstract
 end
 
 # A class is always a `Class`, however it could be a `Type`
@@ -26,12 +33,13 @@ end
 # Class = unresolved formal types.
 abstract class ClassMirror
         super Mirror
+	super Symbolic
 
 	# Number of formal parameter
 	fun arity: Int is abstract
 
         fun method(msym: Symbol): MethodMirror is abstract
-        fun field(fsym: Symbol): FieldMirror is abstract
+        fun attr(fsym: Symbol): AttributeMirror is abstract
 
 	# Returns a constructor for this class parameterized by `types`.
 	fun constr(types: Sequence[TypeMirror]): ConstructorMirror is abstract
@@ -64,6 +72,7 @@ end
 # Mirror over a type
 abstract class TypeMirror
 	super Mirror
+	super Symbolic
 
 	# The class bound to that type
 	var klass: ClassMirror
@@ -74,13 +83,30 @@ abstract class TypeMirror
 	fun constr: ConstructorMirror do return klass.constr(parameters)
 end
 
-# Mirror over a method
+# Mirror over a method.
+# `MethodMirror` is used to mirror constructor, getter, setter and methods.
 abstract class MethodMirror
         super Mirror
+	super Symbolic
+
+	# Unsafely tries to downcast `self` to `AccessorMirror`
+	fun as_accessor: AccessorMirror
+	do
+		assert self isa AccessorMirror
+		return self
+	end
 end
 
-# Mirror of a class attribute
-abstract class FieldMirror
+# Mirror over an accessor method (get/set).
+abstract class AccessorMirror
+	super MethodMirror
+
+	var attr: AttributeMirror
+end
+
+# Mirror of a class attribute.
+abstract class AttributeMirror
         super Mirror
-        var ty: TypeMirror
+	super Symbolic
+        var klass: ClassMirror
 end

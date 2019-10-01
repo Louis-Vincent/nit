@@ -8,11 +8,11 @@ redef class Object
                 var m = new RuntimeMirror
                 var im = m.reflect(self)
                 var res = new Array[String]
-                # fm: FieldMirror
-                for fm in im.fields do
-                        res.push("({fm.name}: {fm.ty} = {fm.value})")
+                # attr: AttributeMirror
+                for attr in im.attrs do
+                        res.push("({attr.to_sym}: {attr.ty} = {attr.value.as(not null)})")
                 end
-                return "{im.klazz.name}'s fields = [{res.join(", ")}]"
+                return "{im.klass.to_sym}'s fields = [{res.join(", ")}]"
         end
 end
 
@@ -30,15 +30,13 @@ class Toto
 end
 
 var m = new RuntimeMirror
-var toto_class: ClassMirror = get_class(sym("Toto"))
+var toto_class: ClassMirror = klass(sym("Toto"))
 
 var t = new Toto(1)
 var im: InstanceMirror = reflect(t)
-var mm_incr1: MethodMirror = im.method(sym("incr"))
+var mm_incr1: MethodMirror = im[sym("incr")]
 var mm_incr2 = toto_class.method(sym("incr"))
-var mm_toto = im.method(sym("toto"))
-
-assert mm_toto1 == mm_toto2
+var mm_toto = im[sym("toto")]
 
 # send :: Symbol -> [Object] -> nullable Object
 # Send retourne null si la méthode est void, c'est ambigue avec une méthode qui
@@ -47,17 +45,17 @@ assert mm_toto1 == mm_toto2
 # serait très verbeux. C'est pas fou non plus de délégué la tâche au programmeur
 # de s'assurer du type de retour. La nature de la réflection doit sacrifier de
 # la sûreté pour avoir des comportements dynamiques.
-var res1: nullable Object = im.send(mm_toto, 10)
+var res1: nullable Object = im.send(mm_toto.to_sym, t, 10)
 
 assert res1 != null
 assert res1.as(Int) == 11
 assert t.x == 1
 
-im.send(incr2, 10)
+im[sym("incr")].send(t, 10)
 assert t.x == 11
 
-mm_incr1.invoke(t, 100)
+mm_incr1.send(t, 100)
 assert t.x == 111
 
-mm_incr2.invoke(t, 1000)
+mm_incr2.send(t, 1000)
 assert t.x == 1111
