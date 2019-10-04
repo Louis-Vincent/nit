@@ -1,3 +1,20 @@
+# This file is part of NIT ( http://www.nitlanguage.org ).
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Base module for all runtime implementation of the Mirror API.
+module runtime
+
 import common
 
 # Base class of a runtime environment (compile-time, interpreter or vm)
@@ -76,7 +93,7 @@ end
 # This class reprsesents an attribute for both a `ClassMirror` and an `InstanceMirror`.
 # It voluntary breaks the Seggregation Principle (GRASP) for more convenience.
 # This is due to the `ty` and `value` methods who should only be used by `InstanceMirror`.
-# Since an attribute has no value or no concrete type in its class definition:
+# Since an attribute may not have value, nor a concrete type in its class definition:
 #
 #
 # ~~~~nitish
@@ -98,7 +115,7 @@ redef class AttributeMirror
 	do
 		if anchor != null then
 			assert anchor.klass == self.klass
-			maybe_ty = self.klass[anchor.ty.to_sym] # parameterized ty by the anchor
+			maybe_ty = self.klass.resolve([anchor.ty.to_sym]) # parameterized ty by the anchor
 		end
 	end
 

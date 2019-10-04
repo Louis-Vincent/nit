@@ -1,3 +1,17 @@
+# This file is part of NIT ( http://www.nitlanguage.org ).
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Expose low level information of the current program.
 # This module enables the user to manipulate runtime entities such as class or
 # type but in a really opaque/symbolic way. This module is not for metaprogramming,
@@ -17,28 +31,22 @@ end
 
 # Represents a runtime Type
 universal Type
-	super Symbolic
-
-	fun types: SequenceRead[Type] is intern
-
-	redef fun symbol is intern
+	fun to_sym: Symbol is intern
+	fun types: nullable SequenceRead[Type] is intern
 	redef fun ==(o) do return o isa Type and native_equals(o)
 	private fun native_equals(o: Type): Bool is intern
 end
 
 # Represents a runtime Class
 universal Klass
-	super Symbolic
-	redef fun symbol is intern
-
+	fun to_sym: Symbol is intern
 	redef fun ==(o) do return o isa Klass and native_equals(o)
 	private fun native_equals(o: Klass): Bool is intern
 end
 
 # Represents a runtime Method
 universal Method
-	super Symbolic
-	redef fun symbol is intern
+	fun to_sym: Symbol is intern
 	fun ref: Routine is intern
 end
 
@@ -52,13 +60,13 @@ universal NativeModel
 	# Returns the type of the corresponding symbol `ty`
 	fun sym2type(ty: Symbol): nullable Type is intern
 
-	fun isa_type(sym: Symbolic): Bool is intern
-	do
+	# Returns true if `sym` symbolized a runtime type otherwise false.
+	fun isa_type(sym: Symbolic): Bool is intern do
 		return sym2type(sym.to_sym) != null
 	end
 
-	fun isa_class(sym: Symbolic): Bool is intern
-	do
+	# Returns true if `sym` symbolized a runtime class otherwise false.
+	fun isa_class(sym: Symbolic): Bool is intern do
 		return sym2class(sym.to_sym) != null
 	end
 
@@ -74,6 +82,28 @@ universal NativeModel
 	# Returns the type of a living object.
 	fun typeof(object: Object): Type is intern
 
-	# Returns the method symbolized by `sym` in the class `klass`
+	# Returns the method symbolized by `sym` in the class `klass`.
 	fun method(sym: Symbol, klass: Klass): nullable Method is intern
+
+	# Returns the number of formal parameters for the class `klass`.
+	fun arity_of(klass: Klass): Int is intern
+
+	# Returns the ith class parameter bound.
+	# Class parameters are indexed from 0 to n-1.
+	#
+	# ~~~nitish
+	# class Foo[A,B,C,D]
+	# end
+	# var foo_class = klass(sym "Foo")
+	# print nmodel.ith_bound(0, foo_class).to_sym # output "Object"
+	# print nmodel.ith_bound(1, foo_class).to_sym # output "Object"
+	# print nmodel.ith_bound(2, foo_class).to_sym # output "Object"
+	# ~~~
+	fun ith_bound(i: Int, klass: Klass): Type
+	is expects(i >= 0 and i < arity_of(klass)), intern
+
+	# Instantiate a new type from a class `Klass` and its
+	# formal parameters `ts`.
+	fun resolve(klass: Klass, ts: SequenceRead[Type]): Type
+	is expects(ts.length == arity_of(klass)), intern
 end
