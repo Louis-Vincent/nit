@@ -16,6 +16,7 @@ class RuntimeMirror
 end
 
 redef class MethodMirror
+
 	# Tries to send a message to the first argument.
 	# The first argument must be the receiver and the rest the
 	# actual arguments of the method.
@@ -33,6 +34,7 @@ redef class MethodMirror
 end
 
 # A mirror that reflects a living object.
+
 # This is the base class for all object mirror
 abstract class InstanceMirror
         super Mirror
@@ -40,24 +42,32 @@ abstract class InstanceMirror
 	# The current instance being reflected on
         var instance: Object
 
-	# The `Class` of `self.instance`
-	var klass: ClassMirror
-
-	# The `Tye` of `self.instance`
+	# The `Type` of `self.instance`
 	var ty: TypeMirror
 
-        fun method(msym: Symbol): nullable MethodMirror is abstract
+	# The `Class` of `self.instance`.
+	fun klass: ClassMirror do return ty.klass
+
+	# Returns true if this instance has a method symbolized by `method_sym`,
+	# otherwise false.
+	fun has_method(method_sym: Symbol): Bool is abstract
+
+	# Returms the method symbolized by `method_sym`, otherwise null.
+        fun method(method_sym: Symbol): nullable MethodMirror is abstract
 
 	fun attrs: Sequence[AttributeMirror] is abstract
 
-	# Creates a mirror over a method whose symbol is equal to `msym`.
+	# Creates a mirror of a method whose symbol is equal to `msym`.
 	# REQUIRE: method(msym) != null
-	fun [](msym: Symbol): MethodMirror is abstract
+	fun [](method_sym: Symbol): MethodMirror
+	is expects(has_method(method_sym)), abstract
 
-	fun send(mm: Symbol, args: Object...): nullable Object
+	# Sends the `method_sym` message to the current instance with `args`.
+	fun send(method_sym: Symbol, args: Object...): nullable Object
+	is
+		expects(has_method(method_sym))
 	do
-		var method = self.method(mm)
-		assert method != null
+		var method = self.method(method_sym).as(not null)
 		# TODO: maybe add assertion for the arity?
 		return method.send(self.instance, args)
 	end

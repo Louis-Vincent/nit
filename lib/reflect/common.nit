@@ -23,41 +23,80 @@ abstract class Environment
 	fun klass(s: Symbol): nullable ClassMirror is abstract
 end
 
-# Entity associated with a symbol
-abstract class Symbolic
-	fun to_sym: Symbol is abstract
+# Base class of every meta entities in the program, eg : Type, Class, Method, etc.
+abstract class MetaObject
+	super Mirror
+
+	# To respect the Ontological correspondance of a Nit Program,
+	# every entities belong to a class. For example:
+	# A method belongs to a class, an attribute belongs to a class,
+	# A redef belongs to a class, etc.
+	# The only exception is `ClassMirror` which doesn't belong to a class.
+	# However, for simplicity a `ClassMirror` instance should return self.
+	# In other words a class belongs to itself.
+	var klass: ClassMirror is protected writable
 end
 
-# A class is always a `Class`, however it could be a `Type`
-# Type = no/resolved formal types.
-# Class = unresolved formal types.
 abstract class ClassMirror
-        super Mirror
+	super MetaObject
 	super Symbolic
 
 	# Number of formal parameter
-	fun arity: Int is abstract
+	var arity: Int = 0
 
-        fun method(msym: Symbol): MethodMirror is abstract
-        fun attr(fsym: Symbol): AttributeMirror is abstract
+	# Returns true if this class has a method symbolized by `method_symbol`,
+	# otherwise false.
+	fun has_method(method_symbol: Symbol): Bool is abstract
+
+	# Returns true if this class has an attribute symbolized by
+	# `method_symbol`, otherwise false.
+	fun has_attr(attr_symbol: Symbol): Bool is abstract
+
+	# Returns the method symbolized by `method_symbol`.
+        fun method(method_symbol: Symbol): MethodMirror
+	is expects(has_method(method_symbol)), abstract
+
+	# Returns the attribute symbolized by `attr_symbol`.
+        fun attr(attr_symbol: Symbol): AttributeMirror
+	is expects(has_attr(attr_symbol)), abstract
 
 	# Returns a constructor for this class parameterized by `types`.
-	fun constr(types: Sequence[TypeMirror]): ConstructorMirror is abstract
+	fun constr(types: nullable Sequence[TypeMirror]): ConstructorMirror is abstract
 
-	# Returns a class parameterized by the type symbol provided
-	# in parameter.
-	#
+	# Given a generic class, try to create a resolved type parameterized by type
+	# symbols passed in argument.
 	# ~~~nitish
-	# class Foo[E]
+	# class Foo[E,T]
 	# end
 	#
-	# var foo_class = get_class(sym "Foo"))
-	# var tm = foo_class[sym "Int"]
+	# var int_mirror = klass(sym Int).as_type
+	# var foo_class = get_class(sym Foo)
+	# var tm = foo_class.resolve([sym Int, int_mirror])
 	# var f = tm.make_instance
 	# assert f isa Foo[Int]
 	# ~~~
-	fun [](ty: Symbol): TypeMirror is abstract
+	# This method support heterogenous data inside the sequenceo.
+	# However, each element in the sequence must be of type `Symbol` or `TypeMirror`
+	# and in the case of `Symbol` they must symbolized a runtime type.
+	#
+	# NOTE: This method voluntary breaks the polymorphism principle of GRASP for
+	# a more flexible API. The "officialer" way to do it, would be to create :
+	# `SymbolTypeResolver`, `TypeMirrorTypeResolver` and `TypeResolver`. This hierarchy
+	# would implement a method `resolve(symbolic: SYMBOLIC)`, etc. Then the class
+	# `ClassMirror` would need two different method.
+	fun resolve(ss: SequenceRead[Symbolic]): TypeMirror
+	is expects(arity == ss.length,
+		are_valid_parameters(ss)), abstract
 
+	# Checks if each symbolic type provided in argument respects each formal type
+	# bound. Any extra parameters are ignored.
+	# This method support heterogenous data inside the sequence.
+	# However, each element in the sequence must be of type `Symbol` or `TypeMirror`
+	# and in the case of `Symbol` they must symbolized a runtime type.
+	fun are_valid_parameters(ss: SequenceRead[Symbolic]): Bool is abstract
+
+	# Breaks the recursion
+	redef fun klass do return self
 end
 
 # A constructor mirror has more information than method mirror.
@@ -67,26 +106,43 @@ end
 abstract class ConstructorMirror
 	super MethodMirror
 	protected var args_type: Sequence[TypeMirror]
+
+	redef fun to_sym
+	do
+		# This method breaks the segregation principal of GRASP.
+		# However, it doesn't seem to be so harmful in this case.
+		# This is the only exception in the meta hierarchy. Morever,
+		# `ConstructorMirror` takes advantage of being a `MethodMirror`
+		# since it's essentially a function. Finally we don't want any user
+		# to access a constructor in a symbolic way. By forcing the user
+		# to use this API, it reduces the chance of building a malformed
+		# constructor.
+		abort "Constructor can not be symbolized"
+		return super
+	end
 end
 
 # Mirror over a type
 abstract class TypeMirror
-	super Mirror
+	super MetaObject
 	super Symbolic
 
-	# The class bound to that type
-	var klass: ClassMirror
-
 	# Resolved formal parameters
-	var parameters: Sequence[TypeMirror]
+	var parameters: nullable Sequence[TypeMirror] = null
 
-	fun constr: ConstructorMirror do return klass.constr(parameters)
+	# Checks if self is subtype of `other`
+	fun iza(other: TypeMirror): Bool is abstract
+
+	fun constr: ConstructorMirror
+	do
+		return klass.constr(parameters or else new Array[TypeMirror])
+	end
 end
 
 # Mirror over a method.
 # `MethodMirror` is used to mirror constructor, getter, setter and methods.
 abstract class MethodMirror
-        super Mirror
+        super MetaObject
 	super Symbolic
 
 	# Unsafely tries to downcast `self` to `AccessorMirror`
@@ -106,7 +162,6 @@ end
 
 # Mirror of a class attribute.
 abstract class AttributeMirror
-        super Mirror
+        super MetaObject
 	super Symbolic
-        var klass: ClassMirror
 end
