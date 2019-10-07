@@ -1,12 +1,6 @@
 
 redef class Sys
-
-        protected var sym_table = new HashMap[String, Symbol]
-
-        fun sym(str: String): Symbol
-        do
-                return sym_table.get_or_default(str, new Symbol(str))
-        end
+        fun sym(str: String): Symbol is intern
 end
 
 class Symbol
@@ -17,7 +11,7 @@ class Symbol
 	redef fun to_sym do return self
 end
 
-# Base class for all object who can represented by a `Symbol`.
+# Base class for all object who can be represented by a `Symbol`.
 abstract class Symbolic
 	fun to_sym: Symbol is abstract
 end

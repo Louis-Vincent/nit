@@ -15,5 +15,6 @@
 # Interpretation of Nit programs
 module interpreter
 
-import naive_interpreter
+#import naive_interpreter
+import symbol_interpreter
 import dynamic_loading_ffi
