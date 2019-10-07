@@ -59,3 +59,16 @@ assert t.x == 111
 
 mm_incr2.send(t, 1000)
 assert t.x == 1111
+
+var arr_class = klass(sym("Array"))
+#alt1# var arr_constr = arr_class.constr # Error: `Array` class is generic, its type must be resolved before calling `constr`.
+
+# With real symbols: arr_class[:Int]
+var arr_int = arr_class[sym("Int")]
+var arr_int2 = arr_class.resolve([sym("Int")]
+assert arr_int.is_same_instance(arr_int2)
+
+assert arr_int.iza(arr_int2)
+var toto_constr = toto_class.constr
+var t2 = (toto_constr.send(1)).as(Toto)
+

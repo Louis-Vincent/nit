@@ -83,7 +83,20 @@ abstract class ClassMirror
 	is expects(has_attr(attr_symbol)), abstract
 
 	# Returns a constructor for this class parameterized by `types`.
-	fun constr(types: nullable SequenceRead[TypeMirror]): ConstructorMirror is abstract
+	fun constr: ConstructorMirror
+	is
+		expects(self.arity == 0)
+	do
+		# See `TypeMirror::constr` for more information about this
+		# inversion of role.
+		return as_type.constr
+	end
+
+	# See `resolve` for more informations
+	fun [](ss: Symbolic...): TypeMirror do return resolve(ss)
+
+	# If this is not a generic class, returns its type, otherwise error.
+	fun as_type: TypeMirror is expects(arity == 0), abstract
 
 	# Given a generic class, try to create a resolved type parameterized by type
 	# symbols passed in argument.
@@ -115,7 +128,7 @@ abstract class ClassMirror
 	# However, each element in the sequence must be of type `Symbol` or `TypeMirror`
 	# and in the case of `Symbol` they must symbolized a runtime type.
 	fun are_valid_parameters(ss: SequenceRead[Symbolic]): Bool
-	is expects(arity == ss.length), abstract
+	is expects(self.arity == ss.length), abstract
 end
 
 # A constructor is a special kind of method. Compared to `MethodMirror`,
@@ -151,10 +164,18 @@ abstract class TypeMirror
 	fun iza(other: TypeMirror): Bool is abstract
 
 	# Returns a constructor that produce instance of `self` type.
-	fun constr: ConstructorMirror
-	do
-		return klass.constr(parameters or else new Array[TypeMirror])
-	end
+	#
+	# **NOTE**: intuitively the class `ClassMirror` should be the one
+	# who instantiate a constructor. However, generic classes must be
+	# parameterized (resolved) before calling `constr` on it. Therefore, it
+	# makes sense to have another method named `constr` in `TypeMirror`.
+	# Since generic classes are a minority in a program, leaving the
+	# method `ClassMirror::constr` without any arguments (for non-generic class)
+	# makes the API less verbose, eventhough if we were to reflect a perfect
+	# representation of a Nit model, `ClassMirror::constr` should have the following
+	# signature `constr(ty: SequenceRead[TypeMirror])`. Instead,
+	# `ClassMirror::constr` calls `TypeMirror::class` with resolved parameters if any.
+	fun constr: ConstructorMirror is abstract
 end
 
 # Mirror over a method.
