@@ -22,26 +22,20 @@ import symbol2
 import functional
 
 redef class Sys
-	var nmodel: NativeModel is noinit
-	init
-	do
-		# TODO: load model + load symbols table
-	end
+	fun nmodel: NativeModel is intern
 end
 
 # Represents a runtime Type
 universal Type
 	fun to_sym: Symbol is intern
 	fun types: nullable SequenceRead[Type] is intern
-	redef fun ==(o) do return o isa Type and native_equals(o)
-	private fun native_equals(o: Type): Bool is intern
+	redef fun ==(o) do return o isa Type and to_sym == o.to_sym
 end
 
 # Represents a runtime Class
 universal Klass
 	fun to_sym: Symbol is intern
-	redef fun ==(o) do return o isa Klass and native_equals(o)
-	private fun native_equals(o: Klass): Bool is intern
+	redef fun ==(o) do return o isa Type and to_sym == o.to_sym
 end
 
 # Represents a runtime Method

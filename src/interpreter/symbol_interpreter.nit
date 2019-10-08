@@ -1,5 +1,13 @@
 intrude import naive_interpreter
 
+class SymbolInstance
+	super MutableInstance
+
+	var str_instance: StringInstance
+
+	redef fun to_s do return str_instance.str_val
+end
+
 class StringInstance
 	super MutableInstance
 	private var inner: MutableInstance
@@ -27,12 +35,12 @@ redef class AStringExpr
 end
 
 redef class NaiveInterpreter
-	protected var symbol_table = new HashMap[StringInstance, Instance]
+	protected var symbol_table = new HashMap[String, SymbolInstance]
 
-	fun get_or_new_sym(symbol_name: StringInstance): Instance
+	fun get_or_new_sym(symbol_name: StringInstance): SymbolInstance
 	do
-		if symbol_table.has_key(symbol_name) then
-			return symbol_table[symbol_name]
+		if symbol_table.has_key(symbol_name.str_val) then
+			return symbol_table[symbol_name.str_val]
 		else
 			var model = mainmodule.model
 			var symbol_classes = model.get_mclasses_by_name("Symbol")
@@ -41,12 +49,15 @@ redef class NaiveInterpreter
 			var mclass_type = mclass.mclass_type
 			var mclassdef = mclass.intro
 
-			var res = new MutableInstance(mclass_type)
+			var res = new SymbolInstance(mclass_type, symbol_name)
 			self.init_instance(res)
 			var name_setter= mainmodule.try_get_primitive_method("name=", mclass)
 			assert name_setter != null
-			self.send(name_setter, [res, symbol_name])
-			symbol_table[symbol_name] = res
+			var args = new Array[Instance]
+			args.push(res)
+			args.push(symbol_name)
+			self.send(name_setter, args)
+			symbol_table[symbol_name.str_val] = res
 			return res
 		end
 	end
