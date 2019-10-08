@@ -624,7 +624,6 @@ class MClass
 	end
 end
 
-
 # A definition (an introduction or a refinement) of a class in a module
 #
 # A `MClassDef` is associated with an explicit (or almost) definition of a
@@ -1185,7 +1184,6 @@ abstract class MType
 
 	private var as_nullable_cache: nullable MType = null
 
-
 	# The depth of the type seen as a tree.
 	#
 	# * A -> 1
@@ -1246,6 +1244,9 @@ abstract class MType
 		assert not self.need_anchor
 		return self.collect_mclassdefs(mmodule).has(mproperty.intro_mclassdef)
 	end
+
+	# Given an `MType` tries to find its correspond `MClassType`.
+	fun derive_mclass_type: MClassType do abort
 end
 
 # A type based on a class.
@@ -1356,6 +1357,8 @@ class MClassType
 	private var collect_mtypes_cache = new HashMap[MModule, Set[MClassType]]
 
 	redef fun mdoc_or_fallback do return mclass.mdoc_or_fallback
+
+	redef fun derive_mclass_type do return self
 end
 
 # A type based on a generic class.
@@ -1790,6 +1793,8 @@ abstract class MProxyType
 		assert not self.need_anchor
 		return self.mtype.collect_mtypes(mmodule)
 	end
+
+	redef fun derive_mclass_type do return mtype.derive_mclass_type
 end
 
 # A type prefixed with "nullable"

@@ -16,5 +16,5 @@
 module interpreter
 
 #import naive_interpreter
-import symbol_interpreter
+import meta_interpreter
 import dynamic_loading_ffi

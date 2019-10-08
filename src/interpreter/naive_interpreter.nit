@@ -157,7 +157,7 @@ class NaiveInterpreter
 		#n.debug("IN Execute expr")
 		var i = n.expr(self)
 		if i == null and not self.is_escaping then
-			n.debug("inconsitance: no value and not escaping.")
+			n.debug("inconsistance: no value and not escaping.")
 		end
 		var implicit_cast_to = n.implicit_cast_to
 		if i != null and implicit_cast_to != null then
