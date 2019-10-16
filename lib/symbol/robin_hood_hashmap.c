@@ -28,10 +28,12 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <time.h>
+#include <iostream>
+#include <chrono>
 #define MAX_LOAD_FACTOR 0.5f
 #define IS_BIG_ENDIAN ('\x01\x02\x03\x04' == 0x01020304)
 
-//typedef char byte; 
+
 static long a1 = 0x65d200ce55b19ad8L;
 static long b1 = 0x4f2162926e40c299L;
 static long c1 = 0x162dd799029970f8L;
@@ -39,13 +41,8 @@ static long a2 = 0x68b665e6872bd1f4L;
 static long b2 = 0xb6cfcf9d79b51db2L;
 static long c2 = 0x7a2b92ae912898c2L;
 
-// 16 bytes on 64-bit system, if the cache line is 64 bytes
-// this mean we can query 4 entries per iteration.
-// Here I choose to recompute hash for probing distance instead
-// of storing the hash in the entry struct for a better use of the cache line.
-// Moreover, I don't store hashed key inside another array to avoid cache miss,
-// however, this might change.
 struct entry {
+	uint8_t ctrl_b;
 	void* key;
 	void* value;
 };
@@ -109,54 +106,48 @@ static void inner_insert(void* key,
 {
 	uint64_t hkey = hash(key);
 	uint64_t index = fast_modulo(hkey, my_capacity);
-	struct entry entry_to_add = { key, value };
+	struct entry entry_to_add = {128, key, value };
 	struct entry* current_entry;
-	uint64_t prob_distance = 0;
 	for(;;) {
 		current_entry = &entries[index];
-		void* key2 = current_entry->key;
-		if(key2 == NULL) {
-			// Empty slot, take it!
+		uint8_t ctrl_b = current_entry->ctrl_b;
+		if(ctrl_b < 128) {
 			break;	
 		}
-		uint64_t key2_prob_distance = probing_distance(index, key2, my_capacity);
-		if(key2_prob_distance < prob_distance) {
-			// current_entry is richer, then give to the poor
+		if(ctrl_b < entry_to_add.ctrl_b) {
 			struct entry temp = *current_entry;
 			*current_entry = entry_to_add;
 			entry_to_add = temp;
 		}
-		prob_distance++;
+		entry_to_add.ctrl_b++;
 		index = fast_modulo(index+1, my_capacity);
 	}
-	// Insert here
 	*current_entry = entry_to_add;
 }
 
-static struct entry* find_or_null(void *key, struct robin_hood_hmap* hmap, uint64_t* misses) {
+static struct entry* find_or_null(void *key, struct robin_hood_hmap* hmap) {
 	uint64_t hkey = hash(key);
 	uint64_t my_capacity = hmap->capacity;
 	uint64_t index = fast_modulo(hkey, my_capacity);
-	uint64_t prob_distance = 0;
+	uint64_t prob_distance = 128;
 	struct entry* current_entry;
 	struct entry* entries = hmap->entries;
-	*misses = 0;
 	for(;;) {
 		current_entry = &entries[index];
-		void *key2 = current_entry->key;
-		if(key2 == NULL) {
+		uint8_t ctrl_b = current_entry->ctrl_b;
+		if(ctrl_b < 128) {
+			printf("case 1: %lu, %d\n", index, ctrl_b);
 			return NULL;
 		}
-		if(key2 == key) {
+		if(current_entry->key==key) {
 			break;
 		}
-		uint64_t key2_prob_distance = probing_distance(index, key2, my_capacity);
-		if(key2_prob_distance < prob_distance) {
+		if(ctrl_b < prob_distance) {
+			printf("case 2: %lu, %d, %d\n", index, ctrl_b, prob_distance);
 			return NULL;
 		}
 		prob_distance++;
 		index = fast_modulo(index+1, my_capacity);
-		*misses = *misses + 1;
 	}
 	return current_entry;
 }
@@ -186,7 +177,6 @@ static void rehash(struct robin_hood_hmap* hmap) {
 void robin_hood_hmap_insert(void* key, void* value, struct robin_hood_hmap* hmap) {
 	uint64_t size = hmap->size;
 	uint64_t my_capacity = hmap->capacity;
-	//printf("current_load: %lu, next_treshold: %lu\n", size, hmap->next_treshold);
 	if(size >= hmap->next_treshold) {
 		my_capacity *= 2;
 		hmap->capacity = my_capacity;
@@ -198,14 +188,10 @@ void robin_hood_hmap_insert(void* key, void* value, struct robin_hood_hmap* hmap
 }
 
 void* robin_hood_hmap_find(void *key, struct robin_hood_hmap* hmap) {
-	uint64_t misses;
-	struct entry* e = find_or_null(key, hmap, &misses);
+	struct entry* e = find_or_null(key, hmap);
 	if (e == NULL) {
 		return NULL;
 	} else {
-		if(misses > 2) {
-			printf("misses: %lu\n", misses);
-		}
 		return e->value;
 	}
 }
@@ -248,12 +234,15 @@ void randomize ( RefLong** arr, size_t n )
 	arr[i] = arr[j];
 	arr[j] = temp;
     } 
-} 
+}
+
+#define SIZE 1000
 int main(void) {
 	struct robin_hood_hmap* hmap = init_robin_hood_hmap(2048, NULL);
-	RefLong** xs = malloc(sizeof(RefLong)*1000000);
-	RefLong** ys = malloc(sizeof(RefLong)*1000000);
-	for(long i = 0; i < 1000000; ++i) {
+
+	RefLong** xs = malloc(sizeof(RefLong)*SIZE);
+	RefLong** ys = malloc(sizeof(RefLong)*SIZE);
+	for(long i = 0; i < SIZE; ++i) {
 		//printf("inserting: %lu\n", i);
 		RefLong* rl = malloc(sizeof(RefLong));
 		rl->x = i;
@@ -262,20 +251,34 @@ int main(void) {
 		//robin_hood_hmap_insert(rl, (void*)i, hmap);
 	}
 
-	randomize(ys, 1000000);
-	for(long i = 0; i < 1000000; ++i) {
+	randomize(ys, SIZE);
+	for(long i = 0; i < SIZE; ++i) {
+		std::cout << i << std::endl;
 		robin_hood_hmap_insert(ys[i], (void*)i, hmap);
 	}
-	clock_t start,end;
-	double cpu_time_used;
-	for(long i = 0; i < 1000000; ++i) {
+	//for(long i = 0; i < 32; ++i) {
+	//	struct entry* e = hmap->entries+i;
+	//	std::cout << "inserting {" << (uint64_t) e->ctrl_b 
+	//	<< ", " << e->key
+	//	<< ", " << (long) e->value
+	//	<< "}" << std::endl;
+	//}
+	typedef std::chrono::high_resolution_clock Clock;
+	for(long i = 0; i < SIZE; ++i) {
 		void* key = xs[i];
-		start = clock();
+		//start = clock();
+		auto start_time = Clock::now();
 		long res = (long)robin_hood_hmap_find(key, hmap);
-		int good = ys[res] == key;
-		end = clock();
-		cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
-		printf("(%lu, %lu), time taken: %lf, good?: %d\n", i, res, cpu_time_used, good);	
-	}
+		bool good = ys[res] == key;
+		auto end_time = Clock::now();
+		std::cout << "res: " << res 
+			<< ", " 
+			<< "Time difference: " 
+			<< std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() 
+			<< " nanoseconds" 
+			<< ", good: "
+			<< good
+			<< std::endl;
+	}	
 	return 0;
 }
