@@ -130,26 +130,22 @@ static struct entry* find_or_null(void *key, struct robin_hood_hmap* hmap) {
 	uint64_t my_capacity = hmap->capacity;
 	uint64_t index = fast_modulo(hkey, my_capacity);
 	uint64_t prob_distance = 128;
-	struct entry* current_entry;
+	struct entry current_entry;
 	struct entry* entries = hmap->entries;
 	for(;;) {
-		current_entry = &entries[index];
-		uint8_t ctrl_b = current_entry->ctrl_b;
-		if(ctrl_b < 128) {
-			printf("case 1: %lu, %d\n", index, ctrl_b);
+		current_entry = entries[index];
+		uint8_t ctrl_b = current_entry.ctrl_b;
+		if(ctrl_b < 128 || ctrl_b < prob_distance) {
 			return NULL;
 		}
-		if(current_entry->key==key) {
+		if(current_entry.key==key) {
 			break;
-		}
-		if(ctrl_b < prob_distance) {
-			printf("case 2: %lu, %d, %d\n", index, ctrl_b, prob_distance);
-			return NULL;
 		}
 		prob_distance++;
 		index = fast_modulo(index+1, my_capacity);
 	}
-	return current_entry;
+	//return current_entry;
+	return &entries[index];
 }
 
 static void rehash(struct robin_hood_hmap* hmap) {
@@ -188,7 +184,13 @@ void robin_hood_hmap_insert(void* key, void* value, struct robin_hood_hmap* hmap
 }
 
 void* robin_hood_hmap_find(void *key, struct robin_hood_hmap* hmap) {
+	typedef std::chrono::high_resolution_clock Clock;
+	auto start_time = Clock::now();
 	struct entry* e = find_or_null(key, hmap);
+	auto end_time = Clock::now();
+	std::cout << "Time difference: " 
+		  << std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count()
+		  << std::endl;
 	if (e == NULL) {
 		return NULL;
 	} else {
@@ -253,7 +255,6 @@ int main(void) {
 
 	randomize(ys, SIZE);
 	for(long i = 0; i < SIZE; ++i) {
-		std::cout << i << std::endl;
 		robin_hood_hmap_insert(ys[i], (void*)i, hmap);
 	}
 	//for(long i = 0; i < 32; ++i) {
@@ -263,22 +264,22 @@ int main(void) {
 	//	<< ", " << (long) e->value
 	//	<< "}" << std::endl;
 	//}
-	typedef std::chrono::high_resolution_clock Clock;
+	
 	for(long i = 0; i < SIZE; ++i) {
 		void* key = xs[i];
 		//start = clock();
-		auto start_time = Clock::now();
+		//auto start_time = Clock::now();
 		long res = (long)robin_hood_hmap_find(key, hmap);
 		bool good = ys[res] == key;
-		auto end_time = Clock::now();
-		std::cout << "res: " << res 
-			<< ", " 
-			<< "Time difference: " 
-			<< std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() 
-			<< " nanoseconds" 
-			<< ", good: "
-			<< good
-			<< std::endl;
+		//auto end_time = Clock::now();
+		//std::cout << "res: " << res 
+		//	<< ", " 
+		//	<< "Time difference: " 
+		//	<< std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() 
+		//	<< " nanoseconds" 
+		//	<< ", good: "
+		//	<< good
+		//	<< std::endl;
 	}	
 	return 0;
 }
