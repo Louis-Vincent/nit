@@ -20,9 +20,8 @@
 # eg: remote object, debug objects, current process, etc.
 module common
 
-import symbol2
-
-abstract class Mirror
+# Base class of our meta-hierarchy
+interface Mirror
 end
 
 # Base class of all environment kinds.
@@ -37,168 +36,149 @@ end
 # import runtime_time_env1 # ok
 # import runtime_time_env2 # ERROR : two runtime implementation
 # ~~~~
-abstract class Environment
-        super Mirror
-	# Tries to build a class mirror from the provided symbol `s`.
-	# If the class doesn't exist at runtime, then returns null.
-	fun klass(s: Symbol): nullable ClassMirror is abstract
-end
-
-# Base class for every entities who is owned/belongs to a class
-abstract class ClassOwned
+interface Environment
 	super Mirror
 
-	# The `ClassMirror` where `self` belongs.
-	var klass: ClassMirror is protected writable
+	type INSPECTABLE: Object
+
+	# Returns the type named `typename`, otherwise `null`.
+	fun get_type(typename: String): nullable AbstractType is abstract
+
+	fun typeof(object: INSPECTABLE): AbstractType is abstract
 end
 
-# Base class of every class properties : Method, Attributes, Annotations, Supers
-# A class property must symbolic and belong to a target class.
-abstract class Property
-	super ClassOwned
-	super Symbolic
-end
-
-abstract class ClassMirror
+interface Property
 	super Mirror
-	super Symbolic
 
-	# Number of formal parameter
-	var arity: Int = 0
+	# The type that introduced this property
+	fun introduced_by: AbstractType is abstract
 
-	# Returns true if this class has a method symbolized by `method_symbol`,
+	# The name of this property
+	fun name: String is abstract
+end
+
+interface Method
+	super Property
+end
+
+interface Attribute
+	super Property
+end
+
+interface Constructor
+	super Method
+	fun arg_types: SequenceRead[Type] is abstract
+end
+
+# Base interface for all class representing the NIT type system at runtime.
+# It provides basic queries for the type system.
+interface AbstractType
+	super Mirror
+
+	# The name of the type
+	fun name: String is abstract
+
+	# Returns a set containing all the property of this type.
+	fun properties: Set[Property] is abstract
+
+	# Subtype testing, returns `true` is `self isa other`,
 	# otherwise false.
-	fun has_method(method_symbol: Symbol): Bool is abstract
+	fun iza(other: AbstractType): Bool is abstract
 
-	# Returns true if this class has an attribute symbolized by
-	# `method_symbol`, otherwise false.
-	fun has_attr(attr_symbol: Symbol): Bool is abstract
+	# Returns a `Property` named `property_name` if it exists, otherwise
+	# `null`.
+	fun get_property_or_null(property_name: String): nullable Property is abstract
 
-	# Returns the method symbolized by `method_symbol`.
-        fun method(method_symbol: Symbol): MethodMirror
-	is expects(has_method(method_symbol)), abstract
+	# Returns `true` if this type has a property named `property_name`,
+	# otherwise `false`.
+	fun has_property(property_name: String): Bool
+	do
+		return self.get_property_or_null(property_name) != null
+	end
 
-	# Returns the attribute symbolized by `attr_symbol`.
-        fun attr(attr_symbol: Symbol): AttributeMirror
-	is expects(has_attr(attr_symbol)), abstract
+	# Returns `true` if this type has a method named `method_name`,
+	# otherwise `false`.
+	fun has_method(method_name: String): Bool
+	do
+		var prop = self.get_property_or_null(method_name)
+		return prop != null and prop isa Method
+	end
 
-	# Returns a constructor for this class parameterized by `types`.
-	fun constr: ConstructorMirror
+	# Returns `true` if this type has an attribute named `attribute_name`,
+	# otherwise `false`.
+	fun has_attribute(attribute_name: String): Bool
+	do
+		var prop = self.get_property_or_null(attribute_name)
+		return prop != null and prop isa Attribute
+	end
+
+	# Returns a `Property` named `property_name`.
+	fun get_property(property_name: String): Property
 	is
-		expects(self.arity == 0)
+		expect(has_property(property_name))
 	do
-		# See `TypeMirror::constr` for more information about this
-		# inversion of role.
-		return as_type.constr
+		return self.get_property_or_null(property_name).as(not null)
 	end
 
-	# See `resolve` for more informations
-	fun [](ss: Symbolic...): TypeMirror do return resolve(ss)
-
-	# If this is not a generic class, returns its type, otherwise error.
-	fun as_type: TypeMirror is expects(arity == 0), abstract
-
-	# Given a generic class, try to create a resolved type parameterized by type
-	# symbols passed in argument.
-	# ~~~nitish
-	# class Foo[E,T]
-	# end
-	#
-	# var int_mirror = klass(sym Int).as_type
-	# var foo_class = get_class(sym Foo)
-	# var tm = foo_class.resolve([sym Int, int_mirror])
-	# var f = tm.make_instance
-	# assert f isa Foo[Int]
-	# ~~~
-	# This method support heterogenous data inside the sequenceo.
-	# However, each element in the sequence must be of type `Symbol` or `TypeMirror`
-	# and in the case of `Symbol` they must symbolized a runtime type.
-	#
-	# NOTE: This method voluntary breaks the polymorphism principle of GRASP for
-	# a more flexible API. The "officialer" way to do it, would be to create :
-	# `SymbolTypeResolver`, `TypeMirrorTypeResolver` and `TypeResolver`. This hierarchy
-	# would implement a method `resolve(symbolic: SYMBOLIC)`, etc. Then the class
-	# `ClassMirror` would need two different method.
-	fun resolve(ss: SequenceRead[Symbolic]): TypeMirror
-	is expects(are_valid_parameters(ss)), abstract
-
-	# Checks if each symbolic type provided in argument respects each formal type
-	# bound. Any extra parameters are ignored.
-	# This method support heterogenous data inside the sequence.
-	# However, each element in the sequence must be of type `Symbol` or `TypeMirror`
-	# and in the case of `Symbol` they must symbolized a runtime type.
-	fun are_valid_parameters(ss: SequenceRead[Symbolic]): Bool
-	is expects(self.arity == ss.length), abstract
-end
-
-# A constructor is a special kind of method. Compared to `MethodMirror`,
-# a constructor can not be symbolized and must know its arguments type.
-# In other words, it provides a safer/stricter API than `MethodMirror`,
-# since it prevents from invoking a constructor with invalid typed value.
-abstract class ConstructorMirror
-	super MethodMirror
-	protected var args_type: SequenceRead[TypeMirror]
-
-	redef fun to_sym
+	# Returns a `Method` named `method_name`.
+	fun get_method(method_name: String): Method
+	is
+		expect(has_method(method_name))
 	do
-		# This method breaks the segregation principal of GRASP.
-		# However, this is the only exception in the meta hierarchy. Morever,
-		# `ConstructorMirror` takes advantage of being a `MethodMirror`
-		# since it's essentially a function. Finally we don't want any user
-		# to access a constructor in a symbolic way. By forcing the user
-		# to use this API, it reduces the chance of building a malformed
-		# constructor.
-		abort
+		return self.get_property(method_name).as(Method)
+	end
+
+	# Returns a `Attribute` named `attribute_name`.
+	fun get_attribute(attribute_name: String): Attribute
+	is
+		expect(has_attribute(attribute_name))
+	do
+		return self.get_property(attribute_name).as(Attribute)
 	end
 end
 
-# Mirror over a type
-abstract class TypeMirror
-	super ClassOwned
-	super Symbolic
-
-	# Resolved formal parameters
-	var parameters: nullable SequenceRead[TypeMirror] = null is writable
-
-	# Checks if self is subtype of `other`
-	fun iza(other: TypeMirror): Bool is abstract
-
-	# Returns a constructor that produce instance of `self` type.
-	#
-	# **NOTE**: intuitively the class `ClassMirror` should be the one
-	# who instantiate a constructor. However, generic classes must be
-	# parameterized (resolved) before calling `constr` on it. Therefore, it
-	# makes sense to have another method named `constr` in `TypeMirror`.
-	# Since generic classes are a minority in a program, leaving the
-	# method `ClassMirror::constr` without any arguments (for non-generic class)
-	# makes the API less verbose, eventhough if we were to reflect a perfect
-	# representation of a Nit model, `ClassMirror::constr` should have the following
-	# signature `constr(ty: SequenceRead[TypeMirror])`. Instead,
-	# `ClassMirror::constr` calls `TypeMirror::class` with resolved parameters if any.
-	fun constr: ConstructorMirror is abstract
+# Represents a resolved type at runtime.
+# Resolved types can instantiate constructors.
+interface Type
+	super AbstractType
+	fun constr(ts: SequenceRead[Type]): Constructor is abstract
 end
 
-# Mirror over a method.
-# `MethodMirror` is used to mirror constructor, getter, setter and methods.
-abstract class MethodMirror
-        super Property
+# Represents a generic type at runtime.
+# More precisely, they are open types in NIT. They can instantiate new `Type`
+# instances from `[]` operator.
+#
+# ~~~~nitish
+# var array_ty = type_from_name("Array").as(GenericType)
+# # instantiate a new `Type`: the `Array[Int]` type.
+# var array_of_ints: Type = array_ty[Int]
+# # instantiate a new `Type`: the `Array[String]` type.
+# var array_of_strings: Type = array_ty[String]
+# ~~~~
+abstract class GenericType
+	super AbstractType
 
-	# Unsafely tries to downcast `self` to `AccessorMirror`
-	fun as_accessor: AccessorMirror
+	# The number of formal parameter
+	var arity: Int
+
+	# The bound for each formal parameter
+	var bounds: SequenceRead[AbstractType]
+
+	fun [](types: Type...): ResolvedGenericType
 	do
-		assert self isa AccessorMirror
-		return self
+		return resolve_with(types)
 	end
+
+	fun resolve_with(types: SequenceRead[Type]): ResolvedGenericType
+	is abstract, expect(are_valid_type_parameter(types))
+
+	fun are_valid_type_parameter(types: SequenceRead[Type]): Bool
+	is abstract, expect(self.arity == types.length)
+
 end
 
-# Mirror over an accessor method (get/set).
-abstract class AccessorMirror
-	super MethodMirror
-
-	var attr: AttributeMirror
-end
-
-# Mirror of a class attribute.
-abstract class AttributeMirror
-        super Property
+# A generic type who had been resolved.
+abstract class ResolvedGenericType
+	super Type
+	super GenericType
 end

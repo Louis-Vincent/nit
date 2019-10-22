@@ -12,122 +12,212 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Base module for all runtime implementation of the Mirror API.
 module runtime
 
-import common
-
-# Base class of a runtime environment (compile-time, interpreter or vm)
-# The implementation of an environment is built by refinement.
-class RuntimeMirror
-	super Environment
-
-	# Creates a mirror over a living object
-	fun reflect(instance: Object): InstanceMirror is abstract
-
-	# Returns the type of an instance
-	fun typeof(instance: Object): TypeMirror is abstract
-
-	# Returns the class of an instance
-	fun klassof(instaence: Object): ClassMirror is abstract
+# Base class of our meta-hierarchy
+interface Mirror
 end
 
-redef class MethodMirror
-
-	# Tries to send a message to the first argument.
-	# The first argument must be the receiver and the rest the
-	# actual arguments of the method.
-	#
-	# ~~~~nitish
-	# class Foo
-	#	fun bar do print "Foo::bar"
-	# end
-	# var f = new Foo
-	# var im = reflect(f)
-	# var bar_meth = im.method(sym bar)
-	# bar_meth.send(f) # output: "Foo::bar"
-	# ~~~~
-	fun send(args: Object...): nullable Object is abstract
-end
-
-# A mirror that reflects a living object.
-
-# This is the base class for all object mirror
-abstract class InstanceMirror
-        super Mirror
-
-	# The current instance being reflected on
-        var instance: Object
-
-	# The `Type` of `self.instance`
-	var ty: TypeMirror
-
-	# The `Class` of `self.instance`.
-	fun klass: ClassMirror do return ty.klass
-
-	# Returns true if this instance has a method symbolized by `method_sym`,
-	# otherwise false.
-	fun has_method(method_sym: Symbol): Bool is abstract
-
-	# Returms the method symbolized by `method_sym`, otherwise null.
-        fun method(method_sym: Symbol): nullable MethodMirror is abstract
-
-	fun attrs: Sequence[AttributeMirror] is abstract
-
-	# Creates a mirror of a method whose symbol is equal to `msym`.
-	# REQUIRE: method(msym) != null
-	fun [](method_sym: Symbol): MethodMirror
-	is expects(has_method(method_sym)), abstract
-
-	# Sends the `method_sym` message to the current instance with `args`.
-	fun send(method_sym: Symbol, args: Object...): nullable Object
-	is
-		expects(has_method(method_sym))
-	do
-		var method = self.method(method_sym).as(not null)
-		# TODO: maybe add assertion for the arity?
-		return method.send(self.instance, args)
-	end
-end
-
-# This class reprsesents an attribute for both a `ClassMirror` and an `InstanceMirror`.
-# It voluntary breaks the Seggregation Principle (GRASP) for more convenience.
-# This is due to the `ty` and `value` methods who should only be used by `InstanceMirror`.
-# Since an attribute may not have value, nor a concrete type in its class definition:
+# Base class of all environment kinds.
+# Currently there's two kind of environment: runtime and compile-time.
+# An environment provides implementation for the general `Mirror` interface.
+# The implementation of an environment can be choose by refinement.
+# Different kind of environment "could" coexist in the same programe, however,
+# two implementations of the same environment can't. Here's an example
 #
+# ~~~~nitish
+# import compile_time_env1 # used for macros
+# import runtime_time_env1 # ok
+# import runtime_time_env2 # ERROR : two runtime implementation
+# ~~~~
+interface Environment
+	super Mirror
+
+	type INSPECTABLE: Object
+
+	# Returns the type named `typename`, otherwise `null`.
+	fun get_type(typename: String): nullable Interface is abstract
+
+	fun typeof(object: INSPECTABLE): Interface is abstract
+end
+
+interface Reflected
+	fun name: String is abstract
+end
+
+interface Property
+	super Reflected
+
+	# The type that introduced this property
+	fun introduced_by: Interface is abstract
+	fun is_public: Bool is abstract
+	fun is_private: Bool is abstract
+	fun is_protected: Bool is abstract
+	fun is_redef: Bool is abstract
+end
+
+interface Method
+	super Property
+end
+
+interface Attribute
+	super Property
+end
+
+interface Constructor
+	super Method
+end
+
+interface Typoid
+	super Reflected
+
+	# Subtype testing, returns `true` is `self isa other`,
+	# otherwise false.
+	fun iza(other: Interface): Bool is abstract
+end
+
+# A type parameter in a generic type
+interface TypeParameter
+	super Typoid
+	fun bound: Typoid
+end
+
+# A vritual type definition inside a class
+interface VirtualType
+	super Property
+	super TypeParameter
+end
+
+# Base interface for all class representing the NIT type system at runtime.
+# It provides basic queries for the type system.
+interface Interface
+	super Typoid
+
+	# All supertypes of this type in linearized order.
+	fun supertypes: SequenceRead[Interface] is abstract
+
+	# Returns a set containing all the property (inherited and introduced)
+	# of this type.
+	fun properties: Set[Property] is abstract
+
+	# Returns a set of property introduced by this type.
+	fun declared_properties: Set[Property] is abstract
+
+	# Returns a set of property introduced by this type up to a given root.
+	fun collect_properties_up_to(root: Interface): Set[Property] is abstract
+
+	# Returns a `Property` named `property_name` if it exists, otherwise
+	# `null`.
+	fun property_or_null(property_name: String): nullable Property is abstract
+
+	# Returns `true` if this type has a property named `property_name`,
+	# otherwise `false`.
+	fun has_property(property_name: String): Bool
+	do
+		return self.property_or_null(property_name) != null
+	end
+
+	# Returns `true` if this type has a method named `method_name`,
+	# otherwise `false`.
+	fun has_method(method_name: String): Bool
+	do
+		var prop = self.property_or_null(method_name)
+		return prop != null and prop isa Method
+	end
+
+	# Returns `true` if this type has an attribute named `attribute_name`,
+	# otherwise `false`.
+	fun has_attribute(attribute_name: String): Bool
+	do
+		var prop = self.property_or_null(attribute_name)
+		return prop != null and prop isa Attribute
+	end
+
+	# Returns a `Property` named `property_name`.
+	fun property(property_name: String): Property
+	is
+		expect(has_property(property_name))
+	do
+		return self.property_or_null(property_name).as(not null)
+	end
+
+	# Returns a `Method` named `method_name`.
+	fun method(method_name: String): Method
+	is
+		expect(has_method(method_name))
+	do
+		return self.property(method_name).as(Method)
+	end
+
+	# Returns a `Attribute` named `attribute_name`.
+	fun attribute(attribute_name: String): Attribute
+	is
+		expect(has_attribute(attribute_name))
+	do
+		return self.property(attribute_name).as(Attribute)
+	end
+
+	fun default_constructor: nullable Constructor is abstract
+	fun can_new_instance(args: SequenceRead[Object]): Bool is abstract
+	fun new_instance(args: SequenceRead[Object]): Object
+	is abstract, expect(self.can_new_instance(args))
+end
+
+# Represents a type without unresolved type parameter
+interface ClosedType
+	super Interface
+end
+
+# Represents a concrete type at runtime.
+interface Type
+	super ClosedType
+end
+
+# Represents a generic type at runtime.
+# More precisely, they are open types in NIT. They can instantiate new `DerivedType`
+# instances from `[]` operator.
 #
 # ~~~~nitish
-# class Foo[E]
-#	var xs: Array[E]
-# end
-#
-# var f = new Foo[Int]([1,2,3])
+# var array_ty = type_from_name("Array").as(GenericType)
+# # instantiate a new `Type`: the `Array[Int]` type.
+# var array_of_ints: Type = array_ty[Int]
+# # instantiate a new `Type`: the `Array[String]` type.
+# var array_of_strings: Type = array_ty[String]
 # ~~~~
-# Here, if we ask the type of `xs` from the `ClassMirror` perspective, then `xs`
-# as no type. It has a type constructor which is Array. This is the case for all
-# generic types.
-#
-# However, if we ask the type of `xs` from `f` instance, then the type will be `Array[Int]`.
-redef class AttributeMirror
-	var anchor: nullable InstanceMirror
-	protected var maybe_ty: TypeMirror is noinit
-	init
+interface GenericType
+	super Interface
+
+	# The number of formal parameter
+	fun arity: Int is abstract
+
+	# The bound for each formal parameter
+	fun type_parameters: SequenceRead[TypeParameter] is abstract
+
+	fun [](types: Type...): DerivedType
 	do
-		if anchor != null then
-			assert anchor.klass == self.klass
-			maybe_ty = self.klass.resolve([anchor.ty.to_sym]) # parameterized ty by the anchor
+		return resolve_with(types)
+	end
+
+	fun resolve_with(types: SequenceRead[Type]): ResolvedGenericType
+	is abstract, expect(are_valid_type_parameter(types))
+
+	fun are_valid_type_values(types: SequenceRead[Interface]): Bool
+	do
+		for i in [0..types.length[ do
+			var bound = type_parameters[i].bound
+			var ty = types[i]
+			if not ty.iza(bound) then
+				return false
+			end
 		end
 	end
 
-	# Returns the type of an attribute.
-	# This method fails if the attribute isn't bound to any instance.
-	# In other words, if you call this directly on a `ClassMirror` a runtime
-	# error will be throwed.
-	fun ty: TypeMirror
-	do
-		assert anchor != null
-		return maybe_ty
-	end
+end
 
-	fun value: nullable Object do return null
+# A generic type who had been resolved.
+interface class DerivedType
+	super Type
+
+	# The type constructor who instantiated `self`.
+	fun base: GenericType is abstract
 end
