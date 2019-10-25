@@ -73,13 +73,45 @@ interface Typoid
 
 	# Subtype testing, returns `true` is `self isa other`,
 	# otherwise false.
-	fun iza(other: Interface): Bool is abstract
+	fun iza(other: Typoid): Bool is abstract
+
+	fun as_nullable: NullableTypoid
+	do
+		if self isa NullableTypoid then
+			return self
+		else
+			return new NullableTypoid(self)
+		end
+	end
+end
+
+class NullableTypoid
+	super Typoid
+
+	protected var ty: Typoid
+
+	# Returns the underlying non-nullable type
+	fun unwrap: Typoid do return ty
+
+	redef fun iza(other)
+	do
+		if other isa NullableTypoid then
+			return unwrap.iza(other.unwrap)
+		else
+			return unwrap.iza(other)
+		end
+	end
 end
 
 # A type parameter in a generic type
 interface TypeParameter
 	super Typoid
-	fun bound: Typoid
+	fun bound: Typoid is abstract
+
+	redef fun iza(other)
+	do
+		return other.iza(bound)
+	end
 end
 
 # A vritual type definition inside a class
@@ -156,21 +188,28 @@ interface Interface
 	do
 		return self.property(attribute_name).as(Attribute)
 	end
+end
 
-	fun default_constructor: nullable Constructor is abstract
+# Represents a closed type (resolved type) at runtime.
+# Only closed type can instance new objects at runtime.
+interface Type
+	super Interface
+
+	# Returns true if current args match the default init signature,
+	# otherwise false.
 	fun can_new_instance(args: SequenceRead[Object]): Bool is abstract
+
+	# Same as `can_new_instance` but for a specific named init.
+	fun can_new_instance2(args: SequenceRead[Object], constr_name: String): Bool is abstract
+
+	# Command to instantiate a new object.
+	# `args` : arguments for the constructor.
 	fun new_instance(args: SequenceRead[Object]): Object
 	is abstract, expect(self.can_new_instance(args))
-end
 
-# Represents a type without unresolved type parameter
-interface ClosedType
-	super Interface
-end
-
-# Represents a concrete type at runtime.
-interface Type
-	super ClosedType
+	# Same as `new_instance` command but for a specific named init.
+	fun new_instance2(args: SequenceRead[Object], constr_name: String): Object
+	is abstract, expect(self.can_new_instance2(args, constr_name))
 end
 
 # Represents a generic type at runtime.
@@ -198,24 +237,25 @@ interface GenericType
 		return resolve_with(types)
 	end
 
-	fun resolve_with(types: SequenceRead[Type]): ResolvedGenericType
-	is abstract, expect(are_valid_type_parameter(types))
+	fun resolve_with(types: SequenceRead[Type]): DerivedType
+	is abstract, expect(are_valid_type_values(types))
 
 	fun are_valid_type_values(types: SequenceRead[Interface]): Bool
 	do
 		for i in [0..types.length[ do
-			var bound = type_parameters[i].bound
+			var tp = type_parameters[i]
 			var ty = types[i]
-			if not ty.iza(bound) then
+			if not ty.iza(tp) then
 				return false
 			end
 		end
+		return true
 	end
 
 end
 
 # A generic type who had been resolved.
-interface class DerivedType
+interface DerivedType
 	super Type
 
 	# The type constructor who instantiated `self`.

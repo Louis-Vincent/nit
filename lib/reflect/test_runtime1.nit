@@ -1,6 +1,6 @@
 module test_runtime1 is test
 
-import runtime1
+import runtime
 
 class A
 	var x: Int
