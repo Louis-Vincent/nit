@@ -414,7 +414,6 @@ class SeparateCompiler
 			attr_tables[mclass] = attr_colorer.build_layout(mclass)
 		end
 
-
 	end
 
 	# colorize live types of the program
@@ -505,7 +504,6 @@ class SeparateCompiler
 		end
 		return tables
 	end
-
 
 	private fun compute_type_test_layouts(mtypes: Set[MClassType], cast_types: Set[MType]) do
 		# Group cast_type by their classes
@@ -2294,7 +2292,6 @@ class SeparateRuntimeFunction
                         super
                 end
         end
-
 
         redef fun end_compile_to_c(v)
         do

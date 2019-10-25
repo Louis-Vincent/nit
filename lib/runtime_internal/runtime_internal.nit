@@ -94,10 +94,10 @@ universal NativeModel
 	# print nmodel.ith_bound(2, foo_class).to_sym # output "Object"
 	# ~~~
 	fun ith_bound(i: Int, klass: Klass): Type
-	is expects(i >= 0 and i < arity_of(klass)), intern
+	is expect(i >= 0 and i < arity_of(klass)), intern
 
 	# Instantiate a new type from a class `Klass` and its
 	# formal parameters `ts`.
 	fun resolve(klass: Klass, ts: SequenceRead[Type]): Type
-	is expects(ts.length == arity_of(klass)), intern
+	is expect(ts.length == arity_of(klass)), intern
 end

@@ -26,9 +26,78 @@ redef class ToolContext
 	var typing_phase: Phase = new TypingPhase(self, [flow_phase, modelize_property_phase, local_var_init_phase])
 end
 
+class Dummy
+	super MType
+end
+
+redef class MSignature
+	fun is_purely_generic: Bool
+	do
+		for mp in mparameters do
+			if not (mp.mtype isa MFormalType) then
+				return false
+			end
+		end
+		return true
+	end
+end
+
 private class TypingPhase
 	super Phase
-	redef fun process_npropdef(npropdef) do npropdef.do_typing(toolcontext.modelbuilder)
+	var intros = 0
+	var defs = 0
+	var max_sig_length = 0
+	var acc_sig_length = 0
+	var sig_lengths = new Array[Int]
+	var sigs = new Array[MSignature]
+	var my_dummy = new Dummy
+	redef fun process_npropdef(npropdef)
+	do
+		if npropdef isa AMethPropdef then
+			defs += 1
+			var mpropdef = npropdef.mpropdef
+			if mpropdef.is_intro then
+				intros += 1
+				var sig = mpropdef.msignature
+				if sig != null then
+					sigs.push(sig)
+					if sig.mparameters.length > max_sig_length then
+						max_sig_length = sig.mparameters.length
+					end
+					sig_lengths.push(sig.mparameters.length)
+					acc_sig_length += sig.mparameters.length
+				else
+					sig_lengths.push(0)
+				end
+			end
+		end
+		npropdef.do_typing(toolcontext.modelbuilder)
+	end
+
+	redef fun process_nmodule_after(nmodule: AModule)
+	do
+		default_comparator.quick_sort(sig_lengths, 0, sig_lengths.length - 1)
+		var median = sig_lengths[sig_lengths.length / 2]
+		var mean = acc_sig_length / sig_lengths.length
+
+		var sigs2 = new HashSet[HashSet[MType]]
+
+		for s in sigs do
+			if s.is_purely_generic then continue
+			var sig2 = new HashSet[MType]
+			for mp in s.mparameters do
+				if mp.mtype isa MFormalType then
+					sig2.add(self.my_dummy)
+				else
+					sig2.add(mp.mtype)
+				end
+			end
+			#default_comparator.quick_sort(sig2, 0, sig2.length - 1)
+			sigs2.add(sig2)
+		end
+
+		print "(def: {defs}, intro: {intros}, uniques: {sigs2.length}, max: {max_sig_length}, median: {median}, mean: {mean})"
+	end
 end
 
 private class TypeVisitor
@@ -180,7 +249,6 @@ private class TypeVisitor
 	do
 		return self.visit_expr_subtype(nexpr, self.type_bool(nexpr))
 	end
-
 
 	fun check_expr_cast(node: ANode, nexpr: AExpr, ntype: AType): nullable MType
 	do
@@ -424,7 +492,6 @@ private class TypeVisitor
 		return build_callsite_by_name(node, recvtype, name, recv_is_self)
 	end
 
-
 	# Visit the expressions of args and check their conformity with the corresponding type in signature
 	# The point of this method is to handle varargs correctly
 	# Note: The signature must be correctly adapted
@@ -444,7 +511,6 @@ private class TypeVisitor
 			end
 			# Other cases are managed later
 		end
-
 
 		#debug("CALL {unsafe_type}.{msignature}")
 
@@ -1177,7 +1243,6 @@ redef class AVarReassignExpr
 	end
 end
 
-
 redef class AContinueExpr
 	redef fun accept_typing(v)
 	do
@@ -1502,7 +1567,6 @@ redef class AAndExpr
 		self.mtype = v.type_bool(self)
 	end
 end
-
 
 redef class ANotExpr
 	redef fun accept_typing(v)
@@ -2074,7 +2138,6 @@ redef class AUnaryopExpr
 	redef fun compute_raw_arguments do return new Array[AExpr]
 end
 
-
 redef class ACallExpr
 	redef fun property_name do return n_qid.n_id.text
 	redef fun property_node do return n_qid
@@ -2508,7 +2571,6 @@ redef class AAttrExpr
 		self.mtype = self.attr_type
 	end
 end
-
 
 redef class AAttrAssignExpr
 	redef fun accept_typing(v)
