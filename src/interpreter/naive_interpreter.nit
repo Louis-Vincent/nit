@@ -999,7 +999,7 @@ redef class AMethPropdef
 
 	# Interprets a intern or a shortcut extern method.
 	# Returns the result for a function, `null` for a procedure, or `error_instance` if the method is unknown.
-	private fun intern_call(v: NaiveInterpreter, mpropdef: MMethodDef, args: Array[Instance]): nullable Instance
+	protected fun intern_call(v: NaiveInterpreter, mpropdef: MMethodDef, args: Array[Instance]): nullable Instance
 	do
 		var pname = mpropdef.mproperty.name
 		var cname = mpropdef.mclassdef.mclass.name
