@@ -5,13 +5,12 @@ redef class NaiveInterpreter
 	# There's only one instance of `TypeRepo`
 	var type_repo: TypeRepoImpl
 
+	var property_factory: PropertyFactory is noinit
+
 	# Runtime meta types
 	var type_type: MClassType is noinit
 	var type_iterator_type: MClassType is noinit
 	var property_type: MClassType is noinit
-	var method_type: MClassType is noinit
-	var attribute_type: MClassType is noinit
-	var virtualtype_type: MClassType is noinit
 	var prop_iterator_type: MClassType is noinit
 
 	init
@@ -20,14 +19,12 @@ redef class NaiveInterpreter
 		# we should remove the `autoinit` and code against an
 		# abstraction instead a concrete type
 		var type_repo_type = get_mclass("TypeRepo").as(not null).mclass_type
+		self.property_factory = new PropertyFactory(self.mainmodule)
 		type_repo = new TypeRepoImpl(type_repo_type, self)
 		self.type_type = get_mclass("TypeInfo").as(not null).mclass_type
 		self.type_iterator_type = get_mclass("TypeInfoIterator").as(not null).mclass_type
 		self.prop_iterator_type = get_mclass("PropertyInfoIterator").as(not null).mclass_type
 		self.property_type = get_mclass("PropertyInfo").as(not null).mclass_type
-		self.method_type = get_mclass("MethodInfo").as(not null).mclass_type
-		self.attribute_type = get_mclass("AttributeInfo").as(not null).mclass_type
-		self.virtualtype_type = get_mclass("VirtualTypeInfo").as(not null).mclass_type
 	end
 
 	# Converts a runtime `String` to an actual String in the interpreter
@@ -52,6 +49,38 @@ redef class NaiveInterpreter
 			return null
 		end
 		return mclasses.first
+	end
+end
+
+# To promote loose coupling between `PropertyInfo` and `NaiveInterpreter`,
+# the `PropertyFactory` has the job of instantiating new `PropertyInfo` with
+# the proper runtime type.
+class PropertyFactory
+	var mmodule: MModule
+
+	protected fun get_meta_type(meta_typename: String): MClassType
+	do
+		var mclasses = mmodule.model.get_mclasses_by_name(meta_typename)
+		assert missing_meta_classes: mclasses != null
+		assert ambiguous_name: mclasses.length == 1
+		return mclasses.first.mclass_type
+	end
+
+	fun build(mpropdef: MPropDef): PropertyInfo
+	do
+		var mtype: MType
+		if mpropdef isa MMethodDef then
+			mtype = get_meta_type("MethodInfo")
+			return new MethodInfo(mtype, mpropdef)
+		else if mpropdef isa MAttributeDef then
+			mtype = get_meta_type("AttributeInfo")
+			return new AttributeInfo(mtype, mpropdef)
+		else if mpropdef isa MVirtualTypeDef then
+			mtype = get_meta_type("VirtualTypeInfo")
+			return new VirtualTypeInfo(mtype, mpropdef)
+		else
+			abort
+		end
 	end
 end
 
@@ -207,7 +236,9 @@ class TypeInfo
 					mtype = mclass.intro.bound_mtype
 				end
 				var mpropdef = mprop.lookup_first_definition(mmodule, mtype)
-				var propertyinfo = new PropertyInfo(mpropdef.get_meta_type(mmodule), mpropdef)
+				# TODO: removed `get_meta_type` since it creates an implicit
+				# temporal dependency between `get_meta_type` and the constructor.
+				var propertyinfo = v.property_factory.build(mpropdef)
 				my_properties.push(propertyinfo)
 			end
 			self.my_properties = my_properties
@@ -221,19 +252,6 @@ abstract class PropertyInfo
 
 	protected var mpropdef: MPropDef
 	protected var cached_parent: PropertyInfo is noinit
-
-	new(mtype: MType, mpropdef: MPropDef)
-	do
-		if mpropdef isa MMethodDef then
-			return new MethodInfo(mtype, mpropdef)
-		else if mpropdef isa MAttributeDef then
-			return new AttributeInfo(mtype, mpropdef)
-		else if mpropdef isa MVirtualTypeDef then
-			return new VirtualTypeInfo(mtype, mpropdef)
-		else
-			abort
-		end
-	end
 
 	redef fun resolve_intern_call(v, mpropdef, args)
 
@@ -255,20 +273,19 @@ abstract class PropertyInfo
 
 	protected fun parent(v: NaiveInterpreter): PropertyInfo
 	do
+		# If mpropdef is already the introduction, we can't ask for next definition.
+		# Thus, when mpropdef is intro then parent = self
+		if self.mpropdef.is_intro then
+			return self
+		end
 		if not isset _cached_parent then
 			var mpropdef = self.mpropdef
-			# If mpropdef is already the introduction, we can't ask for next definition.
-			# Thus, when mpropdef is intro then parent = self
-			if mpropdef.is_intro then
-				self.cached_parent = self
-			else
-				var mmodule = v.mainmodule
-				var mclassdef = mpropdef.mclassdef
-				# We need an anchored type to call lookup_next_definition
-				var bound_mtype = mclassdef.bound_mtype
-				var parentdef = mpropdef.lookup_next_definition(mmodule, bound_mtype)
-				self.cached_parent = new PropertyInfo(parentdef.get_meta_type(mmodule), parentdef)
-			end
+			var mmodule = v.mainmodule
+			var mclassdef = mpropdef.mclassdef
+			# We need an anchored type to call lookup_next_definition
+			var bound_mtype = mclassdef.bound_mtype
+			var parentdef = mpropdef.lookup_next_definition(mmodule, bound_mtype)
+			self.cached_parent = v.property_factory.build(parentdef)
 		end
 		return self.cached_parent
 	end
@@ -359,29 +376,4 @@ redef class MClass
 	do
 		return collect_linearization(mmodule).last.as(MClassDef)
 	end
-end
-
-redef class MPropDef
-
-	protected var meta_typename = "PropertyInfo"
-
-	fun get_meta_type(mmodule: MModule): MClassType
-	do
-		var mclasses = mmodule.model.get_mclasses_by_name(meta_typename)
-		assert missing_meta_classes: mclasses != null
-		assert ambiguous_name: mclasses.length == 1
-		return mclasses.first.mclass_type
-	end
-end
-
-redef class MAttributeDef
-	redef var meta_typename = "AttributeInfo"
-end
-
-redef class MVirtualTypeDef
-	redef var meta_typename = "VirtualTypeInfo"
-end
-
-redef class MMethodDef
-	redef var meta_typename = "MethodInfo"
 end
