@@ -9,6 +9,9 @@ redef class NaiveInterpreter
 	var type_type: MClassType is noinit
 	var type_iterator_type: MClassType is noinit
 	var property_type: MClassType is noinit
+	var method_type: MClassType is noinit
+	var attribute_type: MClassType is noinit
+	var virtualtype_type: MClassType is noinit
 	var prop_iterator_type: MClassType is noinit
 
 	init
@@ -18,14 +21,13 @@ redef class NaiveInterpreter
 		# abstraction instead a concrete type
 		var type_repo_type = get_mclass("TypeRepo").as(not null).mclass_type
 		type_repo = new TypeRepoImpl(type_repo_type, self)
-
-		# Retrieve `TypeInfo` type
 		self.type_type = get_mclass("TypeInfo").as(not null).mclass_type
-
 		self.type_iterator_type = get_mclass("TypeInfoIterator").as(not null).mclass_type
-
 		self.prop_iterator_type = get_mclass("PropertyInfoIterator").as(not null).mclass_type
 		self.property_type = get_mclass("PropertyInfo").as(not null).mclass_type
+		self.method_type = get_mclass("MethodInfo").as(not null).mclass_type
+		self.attribute_type = get_mclass("AttributeInfo").as(not null).mclass_type
+		self.virtualtype_type = get_mclass("VirtualTypeInfo").as(not null).mclass_type
 	end
 
 	# Converts a runtime `String` to an actual String in the interpreter
@@ -86,7 +88,7 @@ class TypeRepoImpl
 	super Universal
 
 	var interpreter: NaiveInterpreter
-	protected var cached_type = new HashMap[String, TypeInfoImpl]
+	protected var cached_type = new HashMap[String, TypeInfo]
 
 	redef fun resolve_intern_call(v, mpropdef, args)
 	do
@@ -102,7 +104,7 @@ class TypeRepoImpl
 	end
 
 	# Returns the most specific class definition for a given `typename`.
-	protected fun get_type(typename_arg: Instance): nullable TypeInfoImpl
+	protected fun get_type(typename_arg: Instance): nullable TypeInfo
 	is
 		expect(typename_arg isa MutableInstance)
 	do
@@ -113,17 +115,17 @@ class TypeRepoImpl
 		# TODO: handle fully qualified name: manage ambiguous name
 		var mclass_type = interpreter.get_mclass(typename)?.mclass_type
 		assert mclass_type != null
-		var res = new TypeInfoImpl(interpreter.type_type, mclass_type)
+		var res = new TypeInfo(interpreter.type_type, mclass_type)
 		cached_type[typename] = res
 		return res
 	end
 end
 
-class TypeInfoImpl
+class TypeInfo
 	super Universal
 	var mclass_type: MClassType
 
-	protected var my_properties: SequenceRead[PropertyInfoImpl] is noinit
+	protected var my_properties: SequenceRead[PropertyInfo] is noinit
 
 	redef fun resolve_intern_call(v, mpropdef, args)
 	do
@@ -171,51 +173,70 @@ class TypeInfoImpl
 		return v.bool_instance(res)
 	end
 
-	protected fun supertypes(v: NaiveInterpreter): InstanceIterator[TypeInfoImpl]
+	protected fun supertypes(v: NaiveInterpreter): InstanceIterator[TypeInfo]
 	do
 		var mmodule = v.mainmodule
 		var ancestors = self.mclass_type.mclass.collect_ancestors(mmodule, null).to_a
 		mmodule.linearize_mclasses(ancestors)
-		var ancestors2 = new Array[TypeInfoImpl]
+		var ancestors2 = new Array[TypeInfo]
 		for a in ancestors do
 			var mtype = a.mclass_type
 			# Check if we can anchor
 			if mtype.need_anchor and not self.mclass_type.need_anchor then
 				mtype = mtype.anchor_to(mmodule, self.mclass_type)
 			end
-			ancestors2.push(new TypeInfoImpl(v.type_type, mtype))
+			ancestors2.push(new TypeInfo(v.type_type, mtype))
 		end
-		return new InstanceIterator[TypeInfoImpl](v.type_iterator_type, ancestors2.reverse_iterator)
+		return new InstanceIterator[TypeInfo](v.type_iterator_type, ancestors2.reverse_iterator)
 	end
 
-	protected fun properties(v: NaiveInterpreter): InstanceIterator[PropertyInfoImpl]
+	protected fun properties(v: NaiveInterpreter): InstanceIterator[PropertyInfo]
 	do
 		if not isset _my_properties then
 			var mclass = self.mclass_type.mclass
 			var mmodule = v.mainmodule
 			var mprops = mclass.collect_accessible_mproperties(mmodule)
 			# Cache our properties
-			var my_properties = new Array[PropertyInfoImpl]
+			var my_properties = new Array[PropertyInfo]
 			for mprop in mprops do
 				# Get the most specific implementation
-				var mpropdef = mprop.lookup_first_definition(mmodule, mclass_type)
-				var propertyinfo = new PropertyInfoImpl(v.property_type, mpropdef)
+				var mtype = mclass_type
+				# First, we need to make sure mtype doesn't need an anchor,
+				# otherwise we can't call `lookup_first_definition`.
+				if mtype.need_anchor then
+					mtype = mclass.intro.bound_mtype
+				end
+				var mpropdef = mprop.lookup_first_definition(mmodule, mtype)
+				var propertyinfo = new PropertyInfo(mpropdef.get_meta_type(mmodule), mpropdef)
 				my_properties.push(propertyinfo)
 			end
 			self.my_properties = my_properties
 		end
-		return new InstanceIterator[PropertyInfoImpl](v.prop_iterator_type, my_properties.iterator)
+		return new InstanceIterator[PropertyInfo](v.prop_iterator_type, my_properties.iterator)
 	end
 end
 
-class PropertyInfoImpl
+abstract class PropertyInfo
 	super Universal
 
 	protected var mpropdef: MPropDef
-	protected var parent: PropertyInfoImpl is noinit
-	protected var declared_by: TypeInfoImpl is noinit
+	protected var cached_parent: PropertyInfo is noinit
+
+	new(mtype: MType, mpropdef: MPropDef)
+	do
+		if mpropdef isa MMethodDef then
+			return new MethodInfo(mtype, mpropdef)
+		else if mpropdef isa MAttributeDef then
+			return new AttributeInfo(mtype, mpropdef)
+		else if mpropdef isa MVirtualTypeDef then
+			return new VirtualTypeInfo(mtype, mpropdef)
+		else
+			abort
+		end
+	end
 
 	redef fun resolve_intern_call(v, mpropdef, args)
+
 	do
 		var pname = mpropdef.mproperty.name
 		var res: nullable Instance = null
@@ -223,14 +244,52 @@ class PropertyInfoImpl
 		if pname == "to_s" then
 			res = v.string_instance(self.mpropdef.name)
 		else if pname == "parent" then
-			#res = parent
-		else if pname == "declared_by" then
-			#res = declared_by
+			res = self.parent(v)
+		else if pname == "owner" then
+			res = self.owner(v)
 		else
 			err = new UnsupportedMethod("PropertyInfo", pname)
 		end
 		return new InternCallResult(res, err)
 	end
+
+	protected fun parent(v: NaiveInterpreter): PropertyInfo
+	do
+		if not isset _cached_parent then
+			var mpropdef = self.mpropdef
+			# If mpropdef is already the introduction, we can't ask for next definition.
+			# Thus, when mpropdef is intro then parent = self
+			if mpropdef.is_intro then
+				self.cached_parent = self
+			else
+				var mmodule = v.mainmodule
+				var mclassdef = mpropdef.mclassdef
+				# We need an anchored type to call lookup_next_definition
+				var bound_mtype = mclassdef.bound_mtype
+				var parentdef = mpropdef.lookup_next_definition(mmodule, bound_mtype)
+				self.cached_parent = new PropertyInfo(parentdef.get_meta_type(mmodule), parentdef)
+			end
+		end
+		return self.cached_parent
+	end
+
+	protected fun owner(v: NaiveInterpreter): TypeInfo
+	do
+		var classname = v.string_instance(self.mpropdef.mclassdef.mclass.name)
+		return v.type_repo.get_type(classname).as(not null)
+	end
+end
+
+class MethodInfo
+	super PropertyInfo
+end
+
+class AttributeInfo
+	super PropertyInfo
+end
+
+class VirtualTypeInfo
+	super PropertyInfo
 end
 
 # Wrapper class
@@ -300,4 +359,29 @@ redef class MClass
 	do
 		return collect_linearization(mmodule).last.as(MClassDef)
 	end
+end
+
+redef class MPropDef
+
+	protected var meta_typename = "PropertyInfo"
+
+	fun get_meta_type(mmodule: MModule): MClassType
+	do
+		var mclasses = mmodule.model.get_mclasses_by_name(meta_typename)
+		assert missing_meta_classes: mclasses != null
+		assert ambiguous_name: mclasses.length == 1
+		return mclasses.first.mclass_type
+	end
+end
+
+redef class MAttributeDef
+	redef var meta_typename = "AttributeInfo"
+end
+
+redef class MVirtualTypeDef
+	redef var meta_typename = "VirtualTypeInfo"
+end
+
+redef class MMethodDef
+	redef var meta_typename = "MethodInfo"
 end
