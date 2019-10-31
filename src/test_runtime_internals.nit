@@ -3,10 +3,12 @@ import runtime_internals
 #import test_runtime_internals2
 
 class A
+	fun p1: Int do return 1
 end
 
 class B[E]
 	super A
+	redef fun p1: Int do return 10
 end
 
 class C
@@ -26,6 +28,19 @@ print a
 print b
 print c.supertypes.to_a
 print d.supertypes.to_a
-
 print a.properties.to_a
 
+var p1_prop: nullable PropertyInfo = null
+
+for prop in b.properties.to_a do
+	if prop.to_s == "p1" then
+		p1_prop = prop
+	end
+end
+assert p1_prop != null
+
+print p1_prop
+print p1_prop != p1_prop.parent
+print p1_prop.parent == p1_prop.parent.parent.parent
+print p1_prop.owner
+print p1_prop isa MethodInfo

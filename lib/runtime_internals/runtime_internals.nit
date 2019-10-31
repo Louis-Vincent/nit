@@ -18,8 +18,8 @@ end
 
 interface PropertyInfo
 	super RuntimeInfo
-	fun parent: SELF is abstract
-	fun declared_by: TypeInfo is abstract
+	fun parent: SELF is intern
+	fun owner: TypeInfo is intern
 	fun equiv(other: SELF): Bool
 	do
 		if self == other then return true
@@ -44,6 +44,10 @@ universal AttributeInfo
 end
 
 universal MethodInfo
+	super PropertyInfo
+end
+
+universal VirtualTypeInfo
 	super PropertyInfo
 end
 
