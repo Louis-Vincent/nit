@@ -27,6 +27,25 @@ redef class NaiveInterpreter
 		self.property_type = get_mclass("PropertyInfo").as(not null).mclass_type
 	end
 
+	fun isa_array(instance: Instance): Bool
+	do
+		var mtype = instance.mtype
+		return mtype isa MClassType and self.mainmodule.array_class == mtype.mclass
+	end
+
+	# Transfers a runtime instance whose `mtype` is Array to an actual
+	# Array in the interpreter world.
+	fun runtime_array_to_native(array_instance: Instance): Array[Instance]
+	is
+		expect(isa_array(array_instance))
+	do
+		assert array_instance isa MutableInstance
+		var mtype = array_instance.mtype
+		var native_instance = self.send(self.force_get_primitive_method("items", mtype), [array_instance])
+		assert native_instance isa PrimitiveInstance[Array[Instance]]
+		return native_instance.val
+	end
+
 	# Converts a runtime `String` to an actual String in the interpreter
 	# context.
 	fun instance_to_s(object: Instance): String
@@ -108,6 +127,16 @@ end
 abstract class Universal
 	super MutableInstance
 	fun resolve_intern_call(v: NaiveInterpreter, mpropdef: MMethodDef, args: SequenceRead[Instance]): InternCallResult
+	do
+		var res = new InternCallResult(null, new UnsupportedMethod(mpropdef.mproperty.name))
+		dispatch(v, mpropdef, args, res)
+		return res
+	end
+
+	protected fun dispatch(v: NaiveInterpreter, mpropdef: MMethodDef, args: SequenceRead[Instance], out: InternCallResult)
+	is abstract
+
+	protected fun throw_error(mpropdef: MMethodDef, args: SequenceRead[Instance], out: InternCallResult)
 	is abstract
 end
 
@@ -119,17 +148,12 @@ class TypeRepoImpl
 	var interpreter: NaiveInterpreter
 	protected var cached_type = new HashMap[String, TypeInfo]
 
-	redef fun resolve_intern_call(v, mpropdef, args)
+	redef fun dispatch(v, mpropdef, args, out)
 	do
 		var pname = mpropdef.mproperty.name
-		var res: nullable Instance = null
-		var err: nullable InternCallError = null
 		if pname == "get_type" then
-			res = get_type(args[1])
-		else
-			err = new UnsupportedMethod("TypeRepo", pname)
+			out.ok = get_type(args[1])
 		end
-		return new InternCallResult(res, err)
 	end
 
 	# Returns the most specific class definition for a given `typename`.
@@ -156,27 +180,22 @@ class TypeInfo
 
 	protected var my_properties: SequenceRead[PropertyInfo] is noinit
 
-	redef fun resolve_intern_call(v, mpropdef, args)
+	redef fun dispatch(v, mpropdef, args, out)
 	do
 		var pname = mpropdef.mproperty.name
-		var res: nullable Instance = null
-		var err: nullable InternCallError = null
 		if pname == "to_s" then
-			res = self.to_string(v)
+			out.ok = self.to_string(v)
 		else if pname == "is_generic" then
-			res = self.is_generic(v)
+			out.ok = self.is_generic(v)
 		else if pname == "is_interface" then
-			res = self.is_interface(v)
+			out.ok = self.is_interface(v)
 		else if pname == "is_abstract" then
-			res = self.is_abstract(v)
+			out.ok = self.is_abstract(v)
 		else if pname == "supertypes" then
-			res = self.supertypes(v)
+			out.ok = self.supertypes(v)
 		else if pname == "properties" then
-			res = self.properties(v)
-		else
-			err = new UnsupportedMethod("TypeInfo", pname)
+			out.ok = self.properties(v)
 		end
-		return new InternCallResult(res, err)
 	end
 
 	protected fun to_string(v: NaiveInterpreter): Instance
@@ -250,25 +269,20 @@ end
 abstract class PropertyInfo
 	super Universal
 
-	protected var mpropdef: MPropDef
+	protected type MPROPDEF: MPropDef
+	protected var mpropdef: MPROPDEF
 	protected var cached_parent: PropertyInfo is noinit
 
-	redef fun resolve_intern_call(v, mpropdef, args)
-
+	redef fun dispatch(v, mpropdef, args, out)
 	do
 		var pname = mpropdef.mproperty.name
-		var res: nullable Instance = null
-		var err: nullable InternCallError = null
 		if pname == "to_s" then
-			res = v.string_instance(self.mpropdef.name)
+			out.ok = v.string_instance(self.mpropdef.name)
 		else if pname == "parent" then
-			res = self.parent(v)
+			out.ok = self.parent(v)
 		else if pname == "owner" then
-			res = self.owner(v)
-		else
-			err = new UnsupportedMethod("PropertyInfo", pname)
+			out.ok = self.owner(v)
 		end
-		return new InternCallResult(res, err)
 	end
 
 	protected fun parent(v: NaiveInterpreter): PropertyInfo
@@ -299,6 +313,28 @@ end
 
 class MethodInfo
 	super PropertyInfo
+
+	redef type MPROPDEF: MMethodDef
+
+	redef fun dispatch(v, mpropdef, args, out)
+	do
+		var pname = mpropdef.mproperty.name
+		if pname == "call" then
+			out.ok = self.call(v, args)
+		end
+		super
+	end
+
+	fun call(v: NaiveInterpreter, args: SequenceRead[Instance]): nullable Instance
+	is
+		expect(args.length == 2)
+	do
+		# Polymorphic send, since `MethodInfo` instance can be called
+		# between mixed implementation.
+		var runtime_array = args[1]
+		var args2 = v.runtime_array_to_native(runtime_array)
+		return v.send(self.mpropdef.mproperty, args2)
+	end
 end
 
 class AttributeInfo
@@ -314,21 +350,17 @@ class InstanceIterator[INSTANCE: Instance]
 	super Universal
 	protected var inner: Iterator[INSTANCE]
 
-	redef fun resolve_intern_call(v, mpropdef, args)
+	redef fun dispatch(v, mpropdef, args, out)
 	do
 		var pname = mpropdef.mproperty.name
-		var res: nullable Instance = null
-		var err: nullable InternCallError = null
 		if pname == "next" then
 			self.next
+			out.ok = null
 		else if pname == "item" then
-			res = self.item
+			out.ok = self.item
 		else if pname == "is_ok" then
-			res = self.is_ok(v)
-		else
-			err = new UnsupportedMethod("PropertyIterator", pname)
+			out.ok = self.is_ok(v)
 		end
-		return new InternCallResult(res, err)
 	end
 
 	fun next
@@ -358,17 +390,28 @@ end
 
 class UnsupportedMethod
 	super InternCallError
-	var recv_classname: String
 	var methodname: String
 
 	redef fun to_s
 	do
-		return "UnsupportedMethodError: unkown method named `{methodname}` for class `{recv_classname}`"
+		return "UnsupportedMethodError: unkown method named `{methodname}`"
 	end
 end
 
 class InternCallResult
 	super Result[Instance, InternCallError]
+
+	redef fun ok=(val)
+	do
+		_ok = val
+		_err = null
+	end
+
+	redef fun err=(val)
+	do
+		_err = val
+		_ok = null
+	end
 end
 
 redef class MClass
