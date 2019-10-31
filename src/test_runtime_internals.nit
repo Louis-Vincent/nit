@@ -43,4 +43,6 @@ print p1_prop
 print p1_prop != p1_prop.parent
 print p1_prop.parent == p1_prop.parent.parent.parent
 print p1_prop.owner
-print p1_prop isa MethodInfo
+assert p1_prop isa MethodInfo
+var b1 = new B[Int]
+print p1_prop.call([b1]).as(not null)

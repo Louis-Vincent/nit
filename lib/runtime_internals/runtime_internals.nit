@@ -45,6 +45,7 @@ end
 
 universal MethodInfo
 	super PropertyInfo
+	fun call(args: Array[nullable Object]): nullable Object is intern
 end
 
 universal VirtualTypeInfo
