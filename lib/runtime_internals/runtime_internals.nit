@@ -13,6 +13,8 @@ universal TypeInfo
 	fun is_abstract: Bool is intern
 	fun supertypes: Iterator[TypeInfo] is intern
 	fun properties: Iterator[PropertyInfo] is intern
+	fun is_nullable: Bool is intern
+	fun as_nullable: TypeInfo is intern
 	fun type_param_bounds: SequenceRead[TypeInfo] is intern, expect(is_generic)
 	fun resolve(args: Array[TypeInfo]): TypeInfo is intern, expect(is_generic)
 	redef fun to_s is intern

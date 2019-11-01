@@ -50,4 +50,6 @@ print p1_prop.call([b1]).as(not null)
 
 var b_int = b.resolve([int])
 print b_int
-print b.type_param_bounds
+var t1 = b.type_param_bounds.first
+print t1.is_nullable
+print t1.as_nullable == t1

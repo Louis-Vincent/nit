@@ -199,6 +199,10 @@ class TypeInfo
 			out.ok = self.properties(v)
 		else if pname == "resolve" then
 			out.ok = self.resolve(v, args)
+		else if pname == "is_nullable" then
+			out.ok = v.bool_instance(self.is_nullable)
+		else if pname == "as_nullable" then
+			out.ok = self.as_nullable
 		else if pname == "type_param_bounds" then
 			out.ok = self.type_param_bounds(v)
 		end
