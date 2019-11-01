@@ -11,8 +11,13 @@ universal TypeInfo
 	fun is_generic: Bool is intern
 	fun is_interface: Bool is intern
 	fun is_abstract: Bool is intern
-	fun is_universal: Bool is intern do return false
-	fun is_stdclass: Bool is intern do return false
+	fun is_universal: Bool is intern
+
+	fun is_stdclass: Bool
+	do
+		return not is_abstract and not is_universal and not is_interface
+	end
+
 	fun supertypes: Iterator[TypeInfo] is intern
 	fun properties: Iterator[PropertyInfo] is intern
 	fun is_nullable: Bool is intern
@@ -26,20 +31,18 @@ interface PropertyInfo
 	super RuntimeInfo
 	fun parent: SELF is intern
 	fun owner: TypeInfo is intern
+
+	# Return true if `self` and `other` come from the same introduction.
 	fun equiv(other: SELF): Bool
 	do
 		if self == other then return true
 		var my = parent
 		var his = other.parent
-		while my != my or his != his do
+		while my != my.parent or his != his.parent do
 			my = my.parent
 			his = his.parent
 		end
 		return my == his
-	end
-	fun lequiv(other: SELF): Bool
-	do
-		return false
 	end
 
 	redef fun to_s is intern
@@ -59,7 +62,7 @@ universal VirtualTypeInfo
 end
 
 universal TypeRepo
-	fun get_type(typename: String): TypeInfo is intern
+	fun get_type(typename: String): nullable TypeInfo is intern
 	fun typeof(obj: Object): TypeInfo is intern
 end
 
