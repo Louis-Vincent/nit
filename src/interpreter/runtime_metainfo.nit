@@ -6,9 +6,11 @@ redef class Model
 	# Returns true if there's 0 or 1 `MClass` whose name is `classname`,
 	# otherwise false.
 	fun is_unique(classname: String): Bool
+	is
+		expect(self.has_mclass(classname))
 	do
-		var mclasses = self.get_mclasses_by_name(classname)
-		return mclasses == null or mclasses.length < 2
+		var mclasses = self.get_mclasses_by_name(classname).as(not null)
+		return mclasses.length == 1
 	end
 
 	fun has_mclass(classname: String): Bool
@@ -22,7 +24,7 @@ redef class Model
 	# the same `classname` then it fails.
 	fun get_mclass(classname: String): MClass
 	is
-		expect(self.has_mclass(classname) and self.is_unique(classname))
+		expect(self.is_unique(classname))
 	do
 		var mclasses = self.get_mclasses_by_name(classname).as(not null)
 		return mclasses.first
@@ -40,24 +42,25 @@ redef class NaiveInterpreter
 	# Runtime meta types
 	var type_type: MClassType is noinit
 	var type_iterator_type: MClassType is noinit
-	var property_type: MClassType is noinit
 	var prop_iterator_type: MClassType is noinit
 
 	init
 	do
 		var model = self.mainmodule.model
+
 		# NOTE: If we were to have multiple implementation
-		# we should remove the `autoinit` and code against an
-		# abstraction instead a concrete type
-		self.type_repo = new TypeRepo(self.mainmodule.model)
+		# we should remove the `noinit` and code against an
+		# abstraction instead of a concrete type
+
+		self.type_repo = new TypeRepo(model)
+		self.property_factory = new PropertyFactory(model)
+
 		var runtime_type_repo_type = model.get_mclass("TypeRepo").mclass_type
-		self.property_factory = new PropertyFactory(self.mainmodule)
 		runtime_type_repo = new TypeRepoImpl(runtime_type_repo_type, self.type_repo)
 
 		self.type_type = model.get_mclass("TypeInfo").mclass_type
 		self.type_iterator_type = model.get_mclass("TypeInfoIterator").mclass_type
 		self.prop_iterator_type = model.get_mclass("PropertyInfoIterator").mclass_type
-		self.property_type = model.get_mclass("PropertyInfo").mclass_type
 	end
 
 	fun isa_array(instance: Instance): Bool
@@ -89,15 +92,42 @@ redef class NaiveInterpreter
 	end
 end
 
+class TypeRepo
+	protected var model: Model
+	protected var cached_type = new HashMap[MClassType, TypeInfo]
+
+	fun get_type_by_name(name: String): nullable TypeInfo
+	do
+		if model.has_mclass(name) then
+			assert is_unique_class: model.is_unique(name)
+			var mclass_type = model.get_mclass(name).intro.bound_mtype
+			return get_type_by_mclass_type(mclass_type)
+		else
+			return null
+		end
+	end
+
+	fun get_type_by_mclass_type(mclass_type: MClassType): TypeInfo
+	do
+		if cached_type.has_key(mclass_type) then
+			return cached_type[mclass_type]
+		end
+		var type_type = model.get_mclass("TypeInfo").mclass_type
+		var res = new TypeInfo(type_type, mclass_type)
+		cached_type[mclass_type] = res
+		return res
+	end
+end
+
 # To promote loose coupling between `PropertyInfo` and `NaiveInterpreter`,
-# the `PropertyFactory` has the job of instantiating new `PropertyInfo` with
+# the `PropertyFactory` has the job of instantiating AND caching `PropertyInfo` with
 # the proper runtime type.
 class PropertyFactory
-	var mmodule: MModule
-
+	var model: Model
+	protected var cached_properties = new HashMap[MPropDef, PropertyInfo]
 	protected fun get_meta_type(meta_typename: String): MClassType
 	do
-		var mclasses = mmodule.model.get_mclasses_by_name(meta_typename)
+		var mclasses = self.model.get_mclasses_by_name(meta_typename)
 		assert missing_meta_classes: mclasses != null
 		assert ambiguous_name: mclasses.length == 1
 		return mclasses.first.mclass_type
@@ -105,19 +135,26 @@ class PropertyFactory
 
 	fun build(mpropdef: MPropDef): PropertyInfo
 	do
+		if cached_properties.has_key(mpropdef) then
+			return cached_properties[mpropdef]
+		end
+		var res: PropertyInfo
 		var mtype: MType
 		if mpropdef isa MMethodDef then
 			mtype = get_meta_type("MethodInfo")
-			return new MethodInfo(mtype, mpropdef)
+			res = new MethodInfo(mtype, mpropdef)
 		else if mpropdef isa MAttributeDef then
 			mtype = get_meta_type("AttributeInfo")
-			return new AttributeInfo(mtype, mpropdef)
+			res = new AttributeInfo(mtype, mpropdef)
 		else if mpropdef isa MVirtualTypeDef then
 			mtype = get_meta_type("VirtualTypeInfo")
-			return new VirtualTypeInfo(mtype, mpropdef)
+			res = new VirtualTypeInfo(mtype, mpropdef)
 		else
 			abort
 		end
+
+		cached_properties[mpropdef] = res
+		return res
 	end
 end
 
@@ -155,32 +192,6 @@ abstract class Universal
 	is abstract
 end
 
-class TypeRepo
-	protected var model: Model
-	protected var cached_type = new HashMap[MClassType, TypeInfo]
-
-	fun get_type_by_name(name: String): nullable TypeInfo
-	do
-		if model.has_mclass(name) then
-			var mclass_type = model.get_mclass(name).intro.bound_mtype
-			return get_type_by_mclass_type(mclass_type)
-		else
-			return null
-		end
-	end
-
-	fun get_type_by_mclass_type(mclass_type: MClassType): TypeInfo
-	do
-		if cached_type.has_key(mclass_type) then
-			return cached_type[mclass_type]
-		end
-		var type_type = model.get_mclass("TypeInfo").mclass_type
-		var res = new TypeInfo(type_type, mclass_type)
-		cached_type[mclass_type] = res
-		return res
-	end
-end
-
 # Exposed `TypeRepo` for the interpreter runtime.
 class TypeRepoImpl
 	super Universal
@@ -201,7 +212,8 @@ class TypeRepoImpl
 		expect(typename_arg isa MutableInstance)
 	do
 		var typename = v.instance_to_s(typename_arg)
-		return type_repo.get_type_by_name(typename)
+		var res = self.type_repo.get_type_by_name(typename)
+		return res
 	end
 end
 
@@ -227,6 +239,8 @@ class TypeInfo
 			out.ok = self.is_interface(v)
 		else if pname == "is_abstract" then
 			out.ok = self.is_abstract(v)
+		else if pname == "is_universal" then
+			out.ok = self.is_universal(v)
 		else if pname == "supertypes" then
 			out.ok = self.supertypes(v)
 		else if pname == "properties" then
@@ -319,6 +333,12 @@ class TypeInfo
 	protected fun is_abstract(v: NaiveInterpreter): Instance
 	do
 		var res = self.mclass_type.mclass.is_abstract
+		return v.bool_instance(res)
+	end
+
+	protected fun is_universal(v: NaiveInterpreter): Instance
+	do
+		var res = self.mclass_type.mclass.is_enum
 		return v.bool_instance(res)
 	end
 
