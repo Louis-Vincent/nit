@@ -1,10 +1,11 @@
 module test_runtime_internals is test
 
+import runtime_internals
 import test_runtime_internals_redefs
 
 interface A
-	var p1: Int
-	var p2: Int
+	fun p1: Int is abstract
+	fun p2: Int is abstract
 end
 
 abstract class B
@@ -24,31 +25,28 @@ end
 class E[T1,T2]
 end
 
-class TestTypeDescriptorQueries
+class TestTypeInfoQueries
 	test
 
-	# model_repo comes from `Sys::model_repo`
-	var mr = model_repo
-
-	fun test_A_supers is test do
-		var a = mr.get_type("A")
-		var object = mr.get_type("Object")
-		var supers = a.supers.to_a
-		assert supers.has_all([a, object])
-		assert supers.length == 2
+	fun test_A_supertypes is test do
+		var a = type_repo.get_type("A")
+		var object = type_repo.get_type("Object")
+		var supertypes = a.supertypes.to_a
+		assert supertypes.has_all([a, object])
+		assert supertypes.length == 2
 	end
 
-	fun test_D_supers is test do
-		var d = mr.get_type("D")
-		var a = mr.get_type("A")
-		var object = mr.get_type("Object")
-		var supers = d.supers.to_a
-		assert supers.has_all([a, object, d])
-		assert supers.length == 3
+	fun test_D_supertypes is test do
+		var d = type_repo.get_type("D")
+		var a = type_repo.get_type("A")
+		var object = type_repo.get_type("Object")
+		var supertypes = d.supertypes.to_a
+		assert supertypes.has_all([a, object, d])
+		assert supertypes.length == 3
 	end
 
 	fun test_is_interface_query_for_A is test do
-		var my_A = mr.get_type("A")
+		var my_A = type_repo.get_type("A")
 		assert my_A.is_interface
 		assert not my_A.is_abstract
 		assert not my_A.is_generic
@@ -56,7 +54,7 @@ class TestTypeDescriptorQueries
 	end
 
 	fun test_is_abstract_query_for_B is test do
-		var my_B = mr.get_type("B")
+		var my_B = type_repo.get_type("B")
 		assert my_B.is_abstract
 		assert not my_B.is_interface
 		assert not my_B.is_generic
@@ -64,7 +62,7 @@ class TestTypeDescriptorQueries
 	end
 
 	fun test_is_universal_query_for_C is test do
-		var my_C = mr.get_type("C")
+		var my_C = type_repo.get_type("C")
 		assert my_C.is_universal
 		assert not my_C.is_interface
 		assert not my_C.is_generic
@@ -72,8 +70,8 @@ class TestTypeDescriptorQueries
 	end
 
 	fun test_is_stdclass_query_for_D_and_E is test do
-		var d = mr.get_type("D")
-		var e = mr.get_type("E")
+		var d = type_repo.get_type("D")
+		var e = type_repo.get_type("E")
 		assert d.is_stdclass
 		assert e.is_stdclass
 		assert not d.is_interface
@@ -86,7 +84,7 @@ class TestTypeDescriptorQueries
 	end
 
 	fun test_is_generic_query_for_E is test do
-		var e = mr.get_type("E")
+		var e = type_repo.get_type("E")
 		assert e.is_generic
 	end
 end
@@ -94,32 +92,30 @@ end
 class TestPropertyQuery
 	test
 
-	var mr = model_repo
 	var z1 = new Z1(1)
 	var z2 = new Z2(2)
-	var tZ1: TypeDescriptor is autoinit
-	var tZ2: TypeDescriptor is autoinit
-	var tZ3: TypeDescriptor is autoinit
-	var tZ4: TypeDescriptor is autoinit
-	var tZ5: TypeDescriptor is autoinit
-	var p1: PropertyDescriptor is autoinit
-	var p11: PropertyDescriptor is autoinit
-	var p111: PropertyDescriptor is autoinit
+	var tZ1: TypeInfo is noinit
+	var tZ2: TypeInfo is noinit
+	var tZ3: TypeInfo is noinit
+	var tZ4: TypeInfo is noinit
+	var tZ5: TypeInfo is noinit
+	var p1: PropertyInfo is noinit
+	var p11: PropertyInfo is noinit
+	var p111: PropertyInfo is noinit
 
-	init
-	do
-		var tZ1 = mr.get_type("Z1")
-		var tZ2 = mr.get_type("Z2")
-		var tZ3 = mr.get_type("Z3")
-		var p1 = get_prop("p1", tZ1).as(not null)
-		var p11 = get_prop("p1", tZ2).as(not null)
-		var p111 = get_prop("p1", tZ3).as(not null)
-	end
+	fun set_up is before_all do
+                tZ1 = type_repo.get_type("Z1")
+		tZ2 = type_repo.get_type("Z2")
+		tZ3 = type_repo.get_type("Z3")
+		p1 = get_prop("p1", tZ1)
+		p11 = get_prop("p1", tZ2)
+		p111 = get_prop("p1", tZ3)
+        end
 
-	fun get_prop(name: String, ty: TypeDescriptor): PropertyDescriptor
+	fun get_prop(name: String, ty: TypeInfo): PropertyInfo
 	do
 		for p in ty.properties do
-			if p.name == name then return p1
+			if p.to_s == name then return p1
 		end
 		abort
 	end
@@ -130,10 +126,10 @@ class TestPropertyQuery
 		assert p111.parent == p11
 	end
 
-	fun test_declared_by is test do
-		assert p1.declared_by == tZ1
-		assert p11.declared_by == tZ2
-		assert p111.declared_by == tZ3
+	fun test_owner is test do
+		assert p1.owner == tZ1
+		assert p11.owner == tZ2
+		assert p111.owner == tZ3
 	end
 
 	fun test_inherited_property_for_Z5 is test do
@@ -142,7 +138,7 @@ class TestPropertyQuery
 	end
 
 	fun test_equivalence_property is test do
-		var p2 = get_prop("p2", tZ3).as(not null)
+		var p2 = get_prop("p2", tZ3)
 		# Symmetry
 		assert p1.equiv(p11)
 		assert p11.equiv(p1)
@@ -166,7 +162,7 @@ class TestPropertyQuery
 	end
 
 	fun test_lequiv_property is test do
-		var p2 = get_prop("p2", tZ3).as(not null)
+		var p2 = get_prop("p2", tZ3)
 		assert p111.lequiv(p11) and p11.lequiv(p1) and p111.lequiv(p1)
 		assert not p111.lequiv(p2) and not p11.lequiv(p2) and not p1.lequiv(p1)
 	end
