@@ -13,6 +13,7 @@ universal TypeInfo
 	fun is_abstract: Bool is intern
 	fun supertypes: Iterator[TypeInfo] is intern
 	fun properties: Iterator[PropertyInfo] is intern
+	fun resolve(args: Array[TypeInfo]): TypeInfo is intern, expect(is_generic)
 	redef fun to_s is intern
 end
 
