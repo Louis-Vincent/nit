@@ -11,6 +11,8 @@ universal TypeInfo
 	fun is_generic: Bool is intern
 	fun is_interface: Bool is intern
 	fun is_abstract: Bool is intern
+	fun is_universal: Bool is intern do return false
+	fun is_stdclass: Bool is intern do return false
 	fun supertypes: Iterator[TypeInfo] is intern
 	fun properties: Iterator[PropertyInfo] is intern
 	fun is_nullable: Bool is intern
