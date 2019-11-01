@@ -152,7 +152,7 @@ class TypeRepoImpl
 	do
 		var pname = mpropdef.mproperty.name
 		if pname == "get_type" then
-			out.ok = get_type(args[1])
+			out.ok = self.get_type(args[1])
 		end
 	end
 
@@ -195,7 +195,28 @@ class TypeInfo
 			out.ok = self.supertypes(v)
 		else if pname == "properties" then
 			out.ok = self.properties(v)
+		else if pname == "resolve" then
+			out.ok = self.resolve(v, args)
 		end
+	end
+
+	protected fun resolve(v: NaiveInterpreter, args: SequenceRead[Instance]): TypeInfo
+	is
+		expect(args.length == 2)
+	do
+		# NOTE: no need to cache derived type inside a table since
+		# `MClass::get_mtype` already does it for us.
+		var args2 = v.runtime_array_to_native(args[1])
+
+		# Maps args2 to an array of `MClassType`
+		var args3 = new Array[MClassType]
+		for arg in args2 do
+			assert param_must_be_type_infos: arg isa TypeInfo
+			args3.push(arg.mclass_type)
+		end
+
+		var derived_type = self.mclass_type.mclass.get_mtype(args3)
+		return new TypeInfo(v.type_type, derived_type)
 	end
 
 	protected fun to_string(v: NaiveInterpreter): Instance

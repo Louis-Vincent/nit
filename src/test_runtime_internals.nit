@@ -23,6 +23,7 @@ var a = type_repo.get_type("A")
 var b = type_repo.get_type("B")
 var c = type_repo.get_type("C")
 var d = type_repo.get_type("D")
+var int = type_repo.get_type("Int")
 
 print a
 print b
@@ -46,3 +47,6 @@ print p1_prop.owner
 assert p1_prop isa MethodInfo
 var b1 = new B[Int]
 print p1_prop.call([b1]).as(not null)
+
+var b_int = b.resolve([int])
+print b_int
