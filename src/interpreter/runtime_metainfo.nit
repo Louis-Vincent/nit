@@ -1,10 +1,40 @@
 import naive_interpreter
 import model::model_collect
 
-redef class NaiveInterpreter
-	# There's only one instance of `TypeRepo`
-	var type_repo: TypeRepoImpl
+redef class Model
 
+	# Returns true if there's 0 or 1 `MClass` whose name is `classname`,
+	# otherwise false.
+	fun is_unique(classname: String): Bool
+	do
+		var mclasses = self.get_mclasses_by_name(classname)
+		return mclasses == null or mclasses.length < 2
+	end
+
+	fun has_mclass(classname: String): Bool
+	do
+		var mclasses = self.get_mclasses_by_name(classname)
+		return mclasses != null
+	end
+
+	# Tries to find an instance of `MClass` named `classname`.
+	# If it doesn't exist then it returns null. If more than one `MClass` have
+	# the same `classname` then it fails.
+	fun get_mclass(classname: String): MClass
+	is
+		expect(self.has_mclass(classname) and self.is_unique(classname))
+	do
+		var mclasses = self.get_mclasses_by_name(classname).as(not null)
+		return mclasses.first
+	end
+end
+
+redef class NaiveInterpreter
+
+	var type_repo: TypeRepo is noinit
+
+	# There's only one instance of `TypeRepo` at runtime
+	var runtime_type_repo: TypeRepoImpl is noinit
 	var property_factory: PropertyFactory is noinit
 
 	# Runtime meta types
@@ -15,16 +45,19 @@ redef class NaiveInterpreter
 
 	init
 	do
+		var model = self.mainmodule.model
 		# NOTE: If we were to have multiple implementation
 		# we should remove the `autoinit` and code against an
 		# abstraction instead a concrete type
-		var type_repo_type = get_mclass("TypeRepo").as(not null).mclass_type
+		self.type_repo = new TypeRepo(self.mainmodule.model)
+		var runtime_type_repo_type = model.get_mclass("TypeRepo").mclass_type
 		self.property_factory = new PropertyFactory(self.mainmodule)
-		type_repo = new TypeRepoImpl(type_repo_type, self)
-		self.type_type = get_mclass("TypeInfo").as(not null).mclass_type
-		self.type_iterator_type = get_mclass("TypeInfoIterator").as(not null).mclass_type
-		self.prop_iterator_type = get_mclass("PropertyInfoIterator").as(not null).mclass_type
-		self.property_type = get_mclass("PropertyInfo").as(not null).mclass_type
+		runtime_type_repo = new TypeRepoImpl(runtime_type_repo_type, self.type_repo)
+
+		self.type_type = model.get_mclass("TypeInfo").mclass_type
+		self.type_iterator_type = model.get_mclass("TypeInfoIterator").mclass_type
+		self.prop_iterator_type = model.get_mclass("PropertyInfoIterator").mclass_type
+		self.property_type = model.get_mclass("PropertyInfo").mclass_type
 	end
 
 	fun isa_array(instance: Instance): Bool
@@ -53,21 +86,6 @@ redef class NaiveInterpreter
 		assert object isa MutableInstance
 		var res = self.send(self.force_get_primitive_method("to_cstring", object.mtype), [object])
 		return res.val.as(CString).to_s
-	end
-
-	# Tries to find a class named `classname`, fails if `classname` is
-	# shared by the two or more classes.
-	fun get_mclass(classname: String): nullable MClass
-	do
-		var mclasses = self.mainmodule.model.get_mclasses_by_name(classname)
-		if mclasses == null then
-			return null
-		end
-		if mclasses.length > 1 then
-			self.fatal("ambiguous class name : `{classname}`")
-			return null
-		end
-		return mclasses.first
 	end
 end
 
@@ -109,7 +127,7 @@ redef class AMethPropdef
 		var cname = mpropdef.mclassdef.mclass.name
 		var pname = mpropdef.mproperty.name
 		if cname == "Sys" and pname == "type_repo" then
-			return v.type_repo
+			return v.runtime_type_repo
 		else if args.length > 0 and args[0] isa Universal then
 			var recv = args[0].as(Universal)
 			var res = recv.resolve_intern_call(v, mpropdef, args)
@@ -137,37 +155,53 @@ abstract class Universal
 	is abstract
 end
 
-# Interpreter's implementation of `TypeRepo`, see `runtime_internals` for more
-# informations.
+class TypeRepo
+	protected var model: Model
+	protected var cached_type = new HashMap[MClassType, TypeInfo]
+
+	fun get_type_by_name(name: String): nullable TypeInfo
+	do
+		if model.has_mclass(name) then
+			var mclass_type = model.get_mclass(name).intro.bound_mtype
+			return get_type_by_mclass_type(mclass_type)
+		else
+			return null
+		end
+	end
+
+	fun get_type_by_mclass_type(mclass_type: MClassType): TypeInfo
+	do
+		if cached_type.has_key(mclass_type) then
+			return cached_type[mclass_type]
+		end
+		var type_type = model.get_mclass("TypeInfo").mclass_type
+		var res = new TypeInfo(type_type, mclass_type)
+		cached_type[mclass_type] = res
+		return res
+	end
+end
+
+# Exposed `TypeRepo` for the interpreter runtime.
 class TypeRepoImpl
 	super Universal
+	var type_repo: TypeRepo
 
-	var interpreter: NaiveInterpreter
 	protected var cached_type = new HashMap[String, TypeInfo]
-
 	redef fun dispatch(v, mpropdef, args, out)
 	do
 		var pname = mpropdef.mproperty.name
 		if pname == "get_type" then
-			out.ok = self.get_type(args[1])
+			out.ok = self.get_type(v, args[1])
 		end
 	end
 
 	# Returns the most specific class definition for a given `typename`.
-	protected fun get_type(typename_arg: Instance): nullable TypeInfo
+	protected fun get_type(v: NaiveInterpreter, typename_arg: Instance): nullable TypeInfo
 	is
 		expect(typename_arg isa MutableInstance)
 	do
-		var typename = interpreter.instance_to_s(typename_arg)
-		if cached_type.has_key(typename) then
-			return cached_type[typename]
-		end
-		# TODO: handle fully qualified name: manage ambiguous name
-		var mclass_type = interpreter.get_mclass(typename)?.mclass_type
-		assert mclass_type != null
-		var res = new TypeInfo(interpreter.type_type, mclass_type)
-		cached_type[typename] = res
-		return res
+		var typename = v.instance_to_s(typename_arg)
+		return type_repo.get_type_by_name(typename)
 	end
 end
 
@@ -240,9 +274,7 @@ class TypeInfo
 			else
 				bound = t_arg.as(MClassType)
 			end
-			# TODO: try to find a way to call get_type with a `String`
-			var bound_name = v.string_instance(bound.mclass.name)
-			var ty = v.type_repo.get_type(bound_name)
+			var ty = v.type_repo.get_type_by_name(bound.mclass.name)
 			assert ty != null
 			if t_arg isa MNullableType then
 				ty = ty.as_nullable
@@ -302,7 +334,8 @@ class TypeInfo
 			if mtype.need_anchor and not self.mclass_type.need_anchor then
 				mtype = mtype.anchor_to(mmodule, self.mclass_type)
 			end
-			ancestors2.push(new TypeInfo(v.type_type, mtype))
+			var typeinfo = v.type_repo.get_type_by_mclass_type(mtype)
+			ancestors2.push(typeinfo)
 		end
 		return new InstanceIterator[TypeInfo](v.type_iterator_type, ancestors2.reverse_iterator)
 	end
@@ -324,8 +357,6 @@ class TypeInfo
 					mtype = mclass.intro.bound_mtype
 				end
 				var mpropdef = mprop.lookup_first_definition(mmodule, mtype)
-				# TODO: removed `get_meta_type` since it creates an implicit
-				# temporal dependency between `get_meta_type` and the constructor.
 				var propertyinfo = v.property_factory.build(mpropdef)
 				my_properties.push(propertyinfo)
 			end
@@ -375,8 +406,8 @@ abstract class PropertyInfo
 
 	protected fun owner(v: NaiveInterpreter): TypeInfo
 	do
-		var classname = v.string_instance(self.mpropdef.mclassdef.mclass.name)
-		return v.type_repo.get_type(classname).as(not null)
+		var classname = self.mpropdef.mclassdef.mclass.name
+		return v.type_repo.get_type_by_name(classname).as(not null)
 	end
 end
 

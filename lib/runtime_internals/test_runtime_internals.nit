@@ -32,8 +32,7 @@ class TestTypeInfoQueries
 		var a = type_repo.get_type("A")
 		var object = type_repo.get_type("Object")
 		var supertypes = a.supertypes.to_a
-		assert supertypes.has_all([a, object])
-		assert supertypes.length == 2
+		assert supertypes == [object]
 	end
 
 	fun test_D_supertypes is test do
@@ -41,8 +40,7 @@ class TestTypeInfoQueries
 		var a = type_repo.get_type("A")
 		var object = type_repo.get_type("Object")
 		var supertypes = d.supertypes.to_a
-		assert supertypes.has_all([a, object, d])
-		assert supertypes.length == 3
+		assert supertypes = [a, object]
 	end
 
 	fun test_is_interface_query_for_A is test do
@@ -92,8 +90,8 @@ end
 class TestPropertyQuery
 	test
 
-	var z1 = new Z1(1)
-	var z2 = new Z2(2)
+	var z1: Z1 is noinit
+	var z2: Z2 is noinit
 	var tZ1: TypeInfo is noinit
 	var tZ2: TypeInfo is noinit
 	var tZ3: TypeInfo is noinit
@@ -104,9 +102,12 @@ class TestPropertyQuery
 	var p111: PropertyInfo is noinit
 
 	fun set_up is before_all do
+		z1 = new Z1(1)
+		z2 = new Z2(10)
                 tZ1 = type_repo.get_type("Z1")
 		tZ2 = type_repo.get_type("Z2")
 		tZ3 = type_repo.get_type("Z3")
+		tZ5 = type_repo.get_type("Z5")
 		p1 = get_prop("p1", tZ1)
 		p11 = get_prop("p1", tZ2)
 		p111 = get_prop("p1", tZ3)
@@ -115,7 +116,7 @@ class TestPropertyQuery
 	fun get_prop(name: String, ty: TypeInfo): PropertyInfo
 	do
 		for p in ty.properties do
-			if p.to_s == name then return p1
+			if p.to_s == name then return p
 		end
 		abort
 	end
