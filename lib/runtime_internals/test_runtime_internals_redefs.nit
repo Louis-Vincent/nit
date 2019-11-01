@@ -3,7 +3,7 @@ import test_runtime_internals_base
 redef class Z1
 	redef fun p1
 	do
-		return "redef Z:p1"
+		return "redef Z1:p1"
 	end
 end
 
@@ -24,7 +24,7 @@ class Z3
 		return "Z3:p1"
 	end
 
-	fun p2
+	fun p2: String
 	do
 		return "Z3:p2"
 	end
