@@ -21,6 +21,9 @@ class D
 	var p6: Int
 end
 
+class E[T1,T2]
+end
+
 fun get_prop(name: String, ty: TypeInfo): PropertyInfo
 do
 	for p in ty.properties do
@@ -30,23 +33,22 @@ do
 end
 
 fun test_A_supertypes do
-	var a = type_repo.get_type("A")
-	var object = type_repo.get_type("Object")
+	var a = type_repo.get_type("A").as(not null)
+	var object = type_repo.get_type("Object").as(not null)
 	var supertypes = a.supertypes.to_a
-	print supertypes[0] == object
 	assert supertypes == [object]
 end
 
 fun test_D_supertypes do
-	var d = type_repo.get_type("D")
-	var a = type_repo.get_type("A")
-	var object = type_repo.get_type("Object")
+	var d = type_repo.get_type("D").as(not null)
+	var a = type_repo.get_type("A").as(not null)
+	var object = type_repo.get_type("Object").as(not null)
 	var supertypes = d.supertypes.to_a
 	assert supertypes == [a, object]
 end
 
 fun test_is_interface_query_for_A do
-	var my_A = type_repo.get_type("A")
+	var my_A = type_repo.get_type("A").as(not null)
 	assert my_A.is_interface
 	assert not my_A.is_abstract
 	assert not my_A.is_generic
@@ -54,7 +56,7 @@ fun test_is_interface_query_for_A do
 end
 
 fun test_is_abstract_query_for_B do
-	var my_B = type_repo.get_type("B")
+	var my_B = type_repo.get_type("B").as(not null)
 	assert my_B.is_abstract
 	assert not my_B.is_interface
 	assert not my_B.is_generic
@@ -62,7 +64,7 @@ fun test_is_abstract_query_for_B do
 end
 
 fun test_is_universal_query_for_C do
-	var my_C = type_repo.get_type("C")
+	var my_C = type_repo.get_type("C").as(not null)
 	assert my_C.is_universal
 	assert not my_C.is_interface
 	assert not my_C.is_generic
@@ -70,8 +72,8 @@ fun test_is_universal_query_for_C do
 end
 
 fun test_is_stdclass_query_for_D_and_E do
-	var d = type_repo.get_type("D")
-	var e = type_repo.get_type("E")
+	var d = type_repo.get_type("D").as(not null)
+	var e = type_repo.get_type("E").as(not null)
 	assert d.is_stdclass
 	assert e.is_stdclass
 	assert not d.is_interface
@@ -84,7 +86,7 @@ fun test_is_stdclass_query_for_D_and_E do
 end
 
 fun test_is_generic_query_for_E do
-	var e = type_repo.get_type("E")
+	var e = type_repo.get_type("E").as(not null)
 	assert e.is_generic
 end
 
@@ -110,17 +112,20 @@ var p2: PropertyInfo
 
 z1 = new Z1(1)
 z2 = new Z2(10)
-tZ1 = type_repo.get_type("Z1")
-tZ2 = type_repo.get_type("Z2")
-tZ3 = type_repo.get_type("Z3")
-tZ5 = type_repo.get_type("Z5")
+tZ1 = type_repo.get_type("Z1").as(not null)
+tZ2 = type_repo.get_type("Z2").as(not null)
+tZ3 = type_repo.get_type("Z3").as(not null)
+tZ5 = type_repo.get_type("Z5").as(not null)
 p1 = get_prop("p1", tZ1)
 p11 = get_prop("p1", tZ2)
 p111 = get_prop("p1", tZ3)
 p2 = get_prop("p2", tZ3)
 
-assert p1.parent == p1
+# Z1::p1 has been refined in one of the import
+assert p1.parent != p1
 assert p11.parent == p1
+assert p11.parent.parent == p1.parent
+assert p11.parent.parent.parent == p1.parent.parent
 assert p111.parent == p11
 
 assert p1.owner == tZ1
@@ -150,9 +155,6 @@ assert not p2.equiv(p111)
 assert not p1.equiv(p2)
 assert not p11.equiv(p2)
 assert not p111.equiv(p2)
-
-assert p111.lequiv(p11) and p11.lequiv(p1) and p111.lequiv(p1)
-assert not p111.lequiv(p2) and not p11.lequiv(p2) and not p1.lequiv(p1)
 
 # Properties may be equivalent but not identical
 assert p1 == p1
