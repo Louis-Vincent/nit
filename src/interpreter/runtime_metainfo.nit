@@ -135,9 +135,6 @@ abstract class Universal
 
 	protected fun dispatch(v: NaiveInterpreter, mpropdef: MMethodDef, args: SequenceRead[Instance], out: InternCallResult)
 	is abstract
-
-	protected fun throw_error(mpropdef: MMethodDef, args: SequenceRead[Instance], out: InternCallResult)
-	is abstract
 end
 
 # Interpreter's implementation of `TypeRepo`, see `runtime_internals` for more
@@ -178,7 +175,12 @@ class TypeInfo
 	super Universal
 	var mclass_type: MClassType
 
+	protected var is_nullable = false
 	protected var my_properties: SequenceRead[PropertyInfo] is noinit
+
+	# To prevent too much duplication of type info, we cache its nullable
+	# equivalent
+	private var nullable_self: TypeInfo is noinit
 
 	redef fun dispatch(v, mpropdef, args, out)
 	do
@@ -197,6 +199,8 @@ class TypeInfo
 			out.ok = self.properties(v)
 		else if pname == "resolve" then
 			out.ok = self.resolve(v, args)
+		else if pname == "type_param_bounds" then
+			out.ok = self.type_param_bounds(v)
 		end
 	end
 
@@ -219,8 +223,48 @@ class TypeInfo
 		return new TypeInfo(v.type_type, derived_type)
 	end
 
+	protected fun type_param_bounds(v: NaiveInterpreter): Instance
+	do
+		var bound_mtype = self.mclass_type.mclass.intro.bound_mtype
+		var type_args = bound_mtype.arguments
+		var types = new Array[TypeInfo]
+		for t_arg in type_args do
+			assert t_arg isa MNullableType or t_arg isa MClassType
+			var bound: MClassType
+			if t_arg isa MNullableType then
+				bound = t_arg.mtype.as(MClassType)
+			else
+				bound = t_arg.as(MClassType)
+			end
+			# TODO: try to find a way to call get_type with a `String`
+			var bound_name = v.string_instance(bound.mclass.name)
+			var ty = v.type_repo.get_type(bound_name)
+			assert ty != null
+			if t_arg isa MNullableType then
+				ty = ty.as_nullable
+			end
+			types.push(ty)
+		end
+		return v.array_instance(types, v.type_type)
+	end
+
+	protected fun as_nullable: TypeInfo
+	do
+		if self.is_nullable then
+			return self
+		else if not isset _nullable_self then
+			var dup = new TypeInfo(self.mtype, self.mclass_type)
+			dup.is_nullable = true
+			self.nullable_self = dup
+		end
+		return self.nullable_self
+	end
+
 	protected fun to_string(v: NaiveInterpreter): Instance
 	do
+		if self.is_nullable then
+			return v.string_instance("nullable {self.mclass_type.name}")
+		end
 		return v.string_instance(self.mclass_type.name)
 	end
 

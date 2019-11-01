@@ -50,3 +50,4 @@ print p1_prop.call([b1]).as(not null)
 
 var b_int = b.resolve([int])
 print b_int
+print b.type_param_bounds
