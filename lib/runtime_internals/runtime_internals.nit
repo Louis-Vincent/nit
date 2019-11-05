@@ -13,18 +13,20 @@ universal TypeInfo
 	fun is_abstract: Bool is intern
 	fun is_universal: Bool is intern
 	fun is_derived: Bool is intern
+	fun is_type_param: Bool is intern
 	fun is_stdclass: Bool
 	do
 		return not is_abstract and not is_universal and not is_interface
 	end
 
-	fun supertypes: Iterator[TypeInfo] is intern
-	fun properties: Iterator[PropertyInfo] is intern
+	fun supertypes: Iterator[TypeInfo] is intern, expect(not is_type_param)
+	fun properties: Iterator[PropertyInfo] is intern, expect(not is_type_param)
 	fun is_nullable: Bool is intern
 	fun as_nullable: TypeInfo is intern
 	fun type_param_bounds: SequenceRead[TypeInfo] is intern, expect(is_generic)
 	fun type_arguments: SequenceRead[TypeInfo] is intern, expect(is_derived)
 	fun resolve(args: Array[TypeInfo]): TypeInfo is intern, expect(is_generic)
+	fun iza(other: TypeInfo): Bool is intern
 	redef fun to_s is intern
 end
 
@@ -47,10 +49,29 @@ interface PropertyInfo
 	end
 
 	redef fun to_s is intern
+
+	fun is_valid_recv(object: Object): Bool
+	do
+		var ty = type_repo.object_type(object)
+		return ty.iza(owner)
+	end
 end
 
 universal AttributeInfo
 	super PropertyInfo
+
+	# Returns the static type of the current attribute anchored by a receiver.
+	# This function is useful if the attribute is typed by a type parameter.
+	# This function ensures the return `TypeInfo` is closed.
+	fun static_type_wrecv(recv: Object): TypeInfo
+	is intern, expect(is_valid_recv(recv))
+
+	# Returns the static type of the current attribute.
+	# This function is less safer than `type_info_wrecv` since it may
+	# return type parameter (aka open generic type).
+	fun static_type: TypeInfo is intern
+
+	fun value(recv: Object): Object is intern
 end
 
 universal MethodInfo
