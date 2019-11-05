@@ -105,6 +105,10 @@ var tZ2: TypeInfo
 var tZ3: TypeInfo
 var tZ4: TypeInfo
 var tZ5: TypeInfo
+var tD: TypeInfo
+var tE: TypeInfo
+var tInt: TypeInfo
+var tString: TypeInfo
 var p1: PropertyInfo
 var p11: PropertyInfo
 var p111: PropertyInfo
@@ -116,6 +120,10 @@ tZ1 = type_repo.get_type("Z1").as(not null)
 tZ2 = type_repo.get_type("Z2").as(not null)
 tZ3 = type_repo.get_type("Z3").as(not null)
 tZ5 = type_repo.get_type("Z5").as(not null)
+tD = type_repo.get_type("D").as(not null)
+tE = type_repo.get_type("E").as(not null)
+tInt = type_repo.get_type("Int").as(not null)
+tString = type_repo.get_type("String").as(not null)
 p1 = get_prop("p1", tZ1)
 p11 = get_prop("p1", tZ2)
 p111 = get_prop("p1", tZ3)
@@ -161,3 +169,12 @@ assert p1 == p1
 assert p1 != p11
 assert p11 != p111
 assert p1 != p111
+
+var tE_Int_String = tE.resolve([tInt, tString])
+assert tE_Int_String.to_s == "E[Int, String]"
+assert tE_Int_String.is_derived
+assert tE_Int_String.type_arguments.to_a == [tInt, tString]
+
+var d1 = new D(10, 100)
+var d1_ty = type_repo.object_type(d1)
+assert d1_ty == tD
