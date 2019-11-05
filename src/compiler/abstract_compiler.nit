@@ -741,6 +741,9 @@ abstract class AbstractCompiler
 		self.header.add_decl("#include <stdlib.h>")
 		self.header.add_decl("#include <stdio.h>")
 		self.header.add_decl("#include <string.h>")
+		#
+		# TODO: for meta
+		self.header.add_decl("#include <dlfcn.h>")
 		# longjmp !
 		self.header.add_decl("#include <setjmp.h>\n")
 		self.header.add_decl("#include <sys/types.h>\n")

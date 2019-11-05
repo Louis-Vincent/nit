@@ -133,7 +133,49 @@ redef class ModelBuilder
 	# Count number of invocations by inlining
 	private var nb_invok_by_inline = 0
 end
+class ModelPersistor
+	fun persist_model(compiler: SeparateCompiler)
+	do
+		var mmodule = compiler.mainmodule
+		var model = mmodule.model
+		var file = compiler.new_file("{mmodule.c_name}.metadata")
+		print "{mmodule.c_name}.metadata"
+		var v = compiler.new_visitor
+		v.add_decl("""
+struct type_info {
+	unsigned long meta_info;  // 8 bytes of general meta inf
+	const struct type *type;
+};
+""")
+		var rta = compiler.runtime_type_analysis
+		var typeset = new HashSet[MType]
+		typeset.add_all(rta.live_types)
+		#typeset.add_all(rta.live_open_types)
+		typeset.add_all(rta.live_cast_types)
+		#typeset.add_all(rta.live_open_cast_types)
+		for mtype in typeset do
+			var cname = mtype.c_name
+			v.add("struct type_info type_info_{cname} = \{")
+			v.add("0,")
+			v.require_declaration("type_{cname}")
+			v.add("&type_{cname}")
+			v.add("\};")
+		end
 
+		var to_cstring = v.get_property("to_cstring", mmodule.string_type)
+		v.require_declaration("{to_cstring.const_color}")
+		v.add("const struct type_info* type_info_by_name(val *name) \{")
+		# TODO: do a type test against a text
+		var target = v.new_var(mmodule.c_string_type)
+		v.add("{target} = (char*)name->class->vft[{to_cstring.const_color}];")
+		for mtype in typeset do
+			var cname = mtype.c_name
+			v.add("if (!strcmp({target}, \"{mtype}\")) return &type_info_{cname};")
+		end
+		v.add("return NULL;")
+		v.add("\}")
+	end
+end
 # Singleton that store the knowledge about the separate compilation process
 class SeparateCompiler
 	super AbstractCompiler
@@ -163,6 +205,8 @@ class SeparateCompiler
 		compiler.compile_header
 
 		var c_name = mainmodule.c_name
+		var mp = new ModelPersistor
+		mp.persist_model(compiler)
 
 		# compile class structures
 		modelbuilder.toolcontext.info("Property coloring", 2)
