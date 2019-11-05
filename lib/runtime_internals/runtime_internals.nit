@@ -12,7 +12,7 @@ universal TypeInfo
 	fun is_interface: Bool is intern
 	fun is_abstract: Bool is intern
 	fun is_universal: Bool is intern
-
+	fun is_derived: Bool is intern
 	fun is_stdclass: Bool
 	do
 		return not is_abstract and not is_universal and not is_interface
@@ -23,6 +23,7 @@ universal TypeInfo
 	fun is_nullable: Bool is intern
 	fun as_nullable: TypeInfo is intern
 	fun type_param_bounds: SequenceRead[TypeInfo] is intern, expect(is_generic)
+	fun type_arguments: SequenceRead[TypeInfo] is intern, expect(is_derived)
 	fun resolve(args: Array[TypeInfo]): TypeInfo is intern, expect(is_generic)
 	redef fun to_s is intern
 end
@@ -63,7 +64,7 @@ end
 
 universal TypeRepo
 	fun get_type(typename: String): nullable TypeInfo is intern
-	fun typeof(obj: Object): TypeInfo is intern
+	fun object_type(obj: Object): TypeInfo is intern
 end
 
 universal TypeInfoIterator

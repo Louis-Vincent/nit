@@ -101,13 +101,36 @@ class TypeRepo
 		if model.has_mclass(name) then
 			assert is_unique_class: model.is_unique(name)
 			var mclass_type = model.get_mclass(name).intro.bound_mtype
-			return get_type_by_mclass_type(mclass_type)
+			return from_mclass_type(mclass_type)
 		else
 			return null
 		end
 	end
 
-	fun get_type_by_mclass_type(mclass_type: MClassType): TypeInfo
+	# Returns an instance of `TypeInfo` from a `MType`. The argument `mtype`
+	# must be a `MClassType` or `MNullableType` whose proxied type is a
+	# `MClassType`.
+	fun from_mtype(mtype: MType): TypeInfo
+	is
+		expect(mtype isa MClassType or mtype isa MNullableType)
+	do
+		var mclass_type: MClassType
+		if mtype isa MNullableType then
+			var proxied = mtype.mtype
+			assert proxied isa MClassType
+			mclass_type = proxied
+		else
+			mclass_type = mtype.as(MClassType)
+		end
+		var res = self.from_mclass_type(mclass_type)
+		if mtype isa MNullableType then
+			return res.as_nullable
+		else
+			return res
+		end
+	end
+
+	fun from_mclass_type(mclass_type: MClassType): TypeInfo
 	do
 		if cached_type.has_key(mclass_type) then
 			return cached_type[mclass_type]
@@ -167,7 +190,7 @@ redef class AMethPropdef
 			return v.runtime_type_repo
 		else if args.length > 0 and args[0] isa Universal then
 			var recv = args[0].as(Universal)
-			var res = recv.resolve_intern_call(v, mpropdef, args)
+			var res = recv.resolve_intern_call(v, pname, args)
 			if res.err != null and res.err isa UnsupportedMethod then
 				return super
 			else
@@ -181,14 +204,14 @@ end
 
 abstract class Universal
 	super MutableInstance
-	fun resolve_intern_call(v: NaiveInterpreter, mpropdef: MMethodDef, args: SequenceRead[Instance]): InternCallResult
+	fun resolve_intern_call(v: NaiveInterpreter, pname: String, args: SequenceRead[Instance]): InternCallResult
 	do
-		var res = new InternCallResult(null, new UnsupportedMethod(mpropdef.mproperty.name))
-		dispatch(v, mpropdef, args, res)
+		var res = new InternCallResult(null, new UnsupportedMethod(pname))
+		dispatch(v, pname, args, res)
 		return res
 	end
 
-	protected fun dispatch(v: NaiveInterpreter, mpropdef: MMethodDef, args: SequenceRead[Instance], out: InternCallResult)
+	protected fun dispatch(v: NaiveInterpreter, pname: String, args: SequenceRead[Instance], out: InternCallResult)
 	is abstract
 end
 
@@ -198,15 +221,17 @@ class TypeRepoImpl
 	var type_repo: TypeRepo
 
 	protected var cached_type = new HashMap[String, TypeInfo]
-	redef fun dispatch(v, mpropdef, args, out)
+	redef fun dispatch(v, pname, args, out)
 	do
-		var pname = mpropdef.mproperty.name
 		if pname == "get_type" then
 			out.ok = self.get_type(v, args[1])
+		else if pname == "object_type" then
+			out.ok = self.object_type(v, args[1])
 		end
 	end
 
-	# Returns the most specific class definition for a given `typename`.
+	# Returns an instance of `TypeInfo` if it exists a class whose name  is
+	# `typename`, otherwise null.
 	protected fun get_type(v: NaiveInterpreter, typename_arg: Instance): nullable TypeInfo
 	is
 		expect(typename_arg isa MutableInstance)
@@ -214,6 +239,12 @@ class TypeRepoImpl
 		var typename = v.instance_to_s(typename_arg)
 		var res = self.type_repo.get_type_by_name(typename)
 		return res
+	end
+
+	# Returns the underlying `TypeInfo` from a runtime instance.
+	protected fun object_type(v: NaiveInterpreter, object: Instance): TypeInfo
+	do
+		return type_repo.from_mtype(object.mtype)
 	end
 end
 
@@ -228,9 +259,8 @@ class TypeInfo
 	# equivalent
 	private var nullable_self: TypeInfo is noinit
 
-	redef fun dispatch(v, mpropdef, args, out)
+	redef fun dispatch(v, pname, args, out)
 	do
-		var pname = mpropdef.mproperty.name
 		if pname == "to_s" then
 			out.ok = self.to_string(v)
 		else if pname == "is_generic" then
@@ -241,6 +271,8 @@ class TypeInfo
 			out.ok = self.is_abstract(v)
 		else if pname == "is_universal" then
 			out.ok = self.is_universal(v)
+		else if pname == "is_derived" then
+			out.ok = self.is_derived(v)
 		else if pname == "supertypes" then
 			out.ok = self.supertypes(v)
 		else if pname == "properties" then
@@ -253,6 +285,8 @@ class TypeInfo
 			out.ok = self.as_nullable
 		else if pname == "type_param_bounds" then
 			out.ok = self.type_param_bounds(v)
+		else if pname == "type_arguments" then
+			out.ok = self.type_arguments(v)
 		end
 	end
 
@@ -280,19 +314,25 @@ class TypeInfo
 		var bound_mtype = self.mclass_type.mclass.intro.bound_mtype
 		var type_args = bound_mtype.arguments
 		var types = new Array[TypeInfo]
+		var type_repo = v.type_repo
 		for t_arg in type_args do
 			assert t_arg isa MNullableType or t_arg isa MClassType
-			var bound: MClassType
-			if t_arg isa MNullableType then
-				bound = t_arg.mtype.as(MClassType)
-			else
-				bound = t_arg.as(MClassType)
-			end
-			var ty = v.type_repo.get_type_by_name(bound.mclass.name)
-			assert ty != null
-			if t_arg isa MNullableType then
-				ty = ty.as_nullable
-			end
+			var ty = type_repo.from_mtype(t_arg)
+			types.push(ty)
+		end
+		return v.array_instance(types, v.type_type)
+	end
+
+	protected fun type_arguments(v: NaiveInterpreter): Instance
+	is
+		expect(not self.mclass_type.need_anchor)
+	do
+		var mtype = self.mclass_type.as(MGenericType)
+		var types = new Array[TypeInfo]
+		var type_repo = v.type_repo
+		for arg in mtype.arguments do
+			assert arg isa MNullableType or arg isa MClassType
+			var ty = type_repo.from_mtype(arg)
 			types.push(ty)
 		end
 		return v.array_instance(types, v.type_type)
@@ -342,6 +382,12 @@ class TypeInfo
 		return v.bool_instance(res)
 	end
 
+	protected fun is_derived(v: NaiveInterpreter): Instance
+	do
+		var res = self.mclass_type isa MGenericType and not self.mclass_type.need_anchor
+		return v.bool_instance(res)
+	end
+
 	protected fun supertypes(v: NaiveInterpreter): InstanceIterator[TypeInfo]
 	do
 		var mmodule = v.mainmodule
@@ -354,7 +400,7 @@ class TypeInfo
 			if mtype.need_anchor and not self.mclass_type.need_anchor then
 				mtype = mtype.anchor_to(mmodule, self.mclass_type)
 			end
-			var typeinfo = v.type_repo.get_type_by_mclass_type(mtype)
+			var typeinfo = v.type_repo.from_mclass_type(mtype)
 			ancestors2.push(typeinfo)
 		end
 		return new InstanceIterator[TypeInfo](v.type_iterator_type, ancestors2.reverse_iterator)
@@ -393,9 +439,8 @@ abstract class PropertyInfo
 	protected var mpropdef: MPROPDEF
 	protected var cached_parent: PropertyInfo is noinit
 
-	redef fun dispatch(v, mpropdef, args, out)
+	redef fun dispatch(v, pname, args, out)
 	do
-		var pname = mpropdef.mproperty.name
 		if pname == "to_s" then
 			out.ok = v.string_instance(self.mpropdef.name)
 		else if pname == "parent" then
@@ -436,9 +481,8 @@ class MethodInfo
 
 	redef type MPROPDEF: MMethodDef
 
-	redef fun dispatch(v, mpropdef, args, out)
+	redef fun dispatch(v, pname, args, out)
 	do
-		var pname = mpropdef.mproperty.name
 		if pname == "call" then
 			out.ok = self.call(v, args)
 		end
@@ -470,9 +514,8 @@ class InstanceIterator[INSTANCE: Instance]
 	super Universal
 	protected var inner: Iterator[INSTANCE]
 
-	redef fun dispatch(v, mpropdef, args, out)
+	redef fun dispatch(v, pname, args, out)
 	do
-		var pname = mpropdef.mproperty.name
 		if pname == "next" then
 			self.next
 			out.ok = null
