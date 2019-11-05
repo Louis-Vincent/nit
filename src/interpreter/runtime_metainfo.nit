@@ -31,6 +31,30 @@ redef class Model
 	end
 end
 
+redef class MType
+	# Returns `self` as a closed `MType` instance
+	fun close: MType
+	do
+		var mtype = self
+		var res = mtype
+		if mtype isa MClassType and mtype.need_anchor then
+			res = mtype.mclass.intro.bound_mtype
+		end
+		if self isa MNullableType then
+			res = res.as_nullable
+		end
+		return res
+	end
+end
+
+redef class MParameterType
+	redef fun close
+	do
+		var bound = mclass.intro.bound_mtype.arguments[self.rank]
+		return bound
+	end
+end
+
 redef class NaiveInterpreter
 
 	var type_repo: TypeRepo is noinit
@@ -112,16 +136,9 @@ class TypeRepo
 	# `MClassType`.
 	fun from_mtype(mtype: MType): TypeInfo
 	is
-		expect(mtype isa MClassType or mtype isa MNullableType)
+		expect(mtype.undecorate isa MClassType)
 	do
-		var mclass_type: MClassType
-		if mtype isa MNullableType then
-			var proxied = mtype.mtype
-			assert proxied isa MClassType
-			mclass_type = proxied
-		else
-			mclass_type = mtype.as(MClassType)
-		end
+		var mclass_type = mtype.undecorate.as(MClassType)
 		var res = self.from_mclass_type(mclass_type)
 		if mtype isa MNullableType then
 			return res.as_nullable
@@ -250,7 +267,7 @@ end
 
 class TypeInfo
 	super Universal
-	var mclass_type: MClassType
+	var reflectee: MType
 
 	protected var is_nullable = false
 	protected var my_properties: SequenceRead[PropertyInfo] is noinit
@@ -273,6 +290,8 @@ class TypeInfo
 			out.ok = self.is_universal(v)
 		else if pname == "is_derived" then
 			out.ok = self.is_derived(v)
+		else if pname == "is_type_param" then
+			out.ok = self.is_type_param(v)
 		else if pname == "supertypes" then
 			out.ok = self.supertypes(v)
 		else if pname == "properties" then
@@ -287,31 +306,46 @@ class TypeInfo
 			out.ok = self.type_param_bounds(v)
 		else if pname == "type_arguments" then
 			out.ok = self.type_arguments(v)
+		else if pname == "iza" then
+			out.ok = self.iza(v, args[1].as(TypeInfo))
 		end
+	end
+
+	protected fun iza(v: NaiveInterpreter, other: TypeInfo): Instance
+	do
+		var sub = self.reflectee.close
+		var sup = other.reflectee.close
+		var res = sub.is_subtype(v.mainmodule, null, sup)
+		return v.bool_instance(res)
 	end
 
 	protected fun resolve(v: NaiveInterpreter, args: SequenceRead[Instance]): TypeInfo
 	is
-		expect(args.length == 2)
+		expect(args.length == 2, self.reflectee isa MGenericType)
 	do
 		# NOTE: no need to cache derived type inside a table since
 		# `MClass::get_mtype` already does it for us.
 		var args2 = v.runtime_array_to_native(args[1])
 
+		var reflectee = self.reflectee.as(MGenericType)
 		# Maps args2 to an array of `MClassType`
 		var args3 = new Array[MClassType]
 		for arg in args2 do
 			assert param_must_be_type_infos: arg isa TypeInfo
-			args3.push(arg.mclass_type)
+			assert type_info_must_reference_class_type: arg.reflectee isa MClassType
+			args3.push(arg.reflectee.as(MClassType))
 		end
 
-		var derived_type = self.mclass_type.mclass.get_mtype(args3)
+		var derived_type = reflectee.mclass.get_mtype(args3)
 		return new TypeInfo(v.type_type, derived_type)
 	end
 
 	protected fun type_param_bounds(v: NaiveInterpreter): Instance
+	is
+		expect(self.reflectee isa MGenericType)
 	do
-		var bound_mtype = self.mclass_type.mclass.intro.bound_mtype
+		var mgeneric = self.reflectee.as(MGenericType)
+		var bound_mtype = mgeneric.mclass.intro.bound_mtype
 		var type_args = bound_mtype.arguments
 		var types = new Array[TypeInfo]
 		var type_repo = v.type_repo
@@ -325,12 +359,13 @@ class TypeInfo
 
 	protected fun type_arguments(v: NaiveInterpreter): Instance
 	is
-		expect(not self.mclass_type.need_anchor)
+		expect(not self.reflectee.need_anchor and self.reflectee isa MGenericType)
 	do
-		var mtype = self.mclass_type.as(MGenericType)
+		# NOTE: Should we look through the inheritance hierarchy?
+		var mgeneric = self.reflectee.as(MGenericType)
 		var types = new Array[TypeInfo]
 		var type_repo = v.type_repo
-		for arg in mtype.arguments do
+		for arg in mgeneric.arguments do
 			assert arg isa MNullableType or arg isa MClassType
 			var ty = type_repo.from_mtype(arg)
 			types.push(ty)
@@ -343,7 +378,7 @@ class TypeInfo
 		if self.is_nullable then
 			return self
 		else if not isset _nullable_self then
-			var dup = new TypeInfo(self.mtype, self.mclass_type)
+			var dup = new TypeInfo(self.reflectee, self.reflectee)
 			dup.is_nullable = true
 			self.nullable_self = dup
 		end
@@ -353,52 +388,74 @@ class TypeInfo
 	protected fun to_string(v: NaiveInterpreter): Instance
 	do
 		if self.is_nullable then
-			return v.string_instance("nullable {self.mclass_type.name}")
+			return v.string_instance("nullable {self.reflectee.name}")
 		end
-		return v.string_instance(self.mclass_type.name)
+		return v.string_instance(self.reflectee.name)
 	end
 
 	protected fun is_generic(v: NaiveInterpreter): Instance
 	do
-		var res = self.mclass_type isa MGenericType
+		var res = self.reflectee isa MGenericType
 		return v.bool_instance(res)
 	end
 
 	protected fun is_interface(v: NaiveInterpreter): Instance
 	do
-		var res = self.mclass_type.mclass.is_interface
+		var res = false
+		var reflectee = self.reflectee
+		if reflectee isa MClassType then
+			res = reflectee.mclass.is_interface
+		end
 		return v.bool_instance(res)
 	end
 
 	protected fun is_abstract(v: NaiveInterpreter): Instance
 	do
-		var res = self.mclass_type.mclass.is_abstract
+		var res = false
+		var reflectee = self.reflectee
+		if reflectee isa MClassType then
+			res = reflectee.mclass.is_abstract
+		end
 		return v.bool_instance(res)
 	end
 
 	protected fun is_universal(v: NaiveInterpreter): Instance
 	do
-		var res = self.mclass_type.mclass.is_enum
+		var res = false
+		var reflectee = self.reflectee
+		if reflectee isa MClassType then
+			res = reflectee.mclass.is_enum
+		end
 		return v.bool_instance(res)
 	end
 
 	protected fun is_derived(v: NaiveInterpreter): Instance
 	do
-		var res = self.mclass_type isa MGenericType and not self.mclass_type.need_anchor
+		# NOTE: Should we look through the inheritance hierarchy?
+		var res = self.reflectee isa MGenericType and not self.reflectee.need_anchor
+		return v.bool_instance(res)
+	end
+
+	protected fun is_type_param(v: NaiveInterpreter): Instance
+	do
+		var res = self.reflectee isa MFormalType
 		return v.bool_instance(res)
 	end
 
 	protected fun supertypes(v: NaiveInterpreter): InstanceIterator[TypeInfo]
+	is
+		expect(self.reflectee isa MClassType)
 	do
 		var mmodule = v.mainmodule
-		var ancestors = self.mclass_type.mclass.collect_ancestors(mmodule, null).to_a
+		var mclass_type = self.reflectee.as(MClassType)
+		var ancestors = mclass_type.mclass.collect_ancestors(mmodule, null).to_a
 		mmodule.linearize_mclasses(ancestors)
 		var ancestors2 = new Array[TypeInfo]
 		for a in ancestors do
 			var mtype = a.mclass_type
 			# Check if we can anchor
-			if mtype.need_anchor and not self.mclass_type.need_anchor then
-				mtype = mtype.anchor_to(mmodule, self.mclass_type)
+			if mtype.need_anchor and not mclass_type.need_anchor then
+				mtype = mtype.anchor_to(mmodule, mclass_type)
 			end
 			var typeinfo = v.type_repo.from_mclass_type(mtype)
 			ancestors2.push(typeinfo)
@@ -407,16 +464,19 @@ class TypeInfo
 	end
 
 	protected fun properties(v: NaiveInterpreter): InstanceIterator[PropertyInfo]
+	is
+		expect(self.reflectee isa MClassType)
 	do
 		if not isset _my_properties then
-			var mclass = self.mclass_type.mclass
+			var reflectee = self.reflectee.as(MClassType)
+			var mclass = reflectee.mclass
 			var mmodule = v.mainmodule
 			var mprops = mclass.collect_accessible_mproperties(mmodule)
 			# Cache our properties
 			var my_properties = new Array[PropertyInfo]
 			for mprop in mprops do
 				# Get the most specific implementation
-				var mtype = mclass_type
+				var mtype = reflectee
 				# First, we need to make sure mtype doesn't need an anchor,
 				# otherwise we can't call `lookup_first_definition`.
 				if mtype.need_anchor then
@@ -485,8 +545,9 @@ class MethodInfo
 	do
 		if pname == "call" then
 			out.ok = self.call(v, args)
+		else
+			super
 		end
-		super
 	end
 
 	fun call(v: NaiveInterpreter, args: SequenceRead[Instance]): nullable Instance
@@ -503,6 +564,51 @@ end
 
 class AttributeInfo
 	super PropertyInfo
+	redef type MPROPDEF: MAttributeDef
+
+	protected var static_type: TypeInfo is noinit
+
+	redef fun dispatch(v, pname, args, out)
+	do
+		if pname == "static_type" then
+			out.ok = self.get_static_type(v)
+		else if pname == "static_type_wrecv" then
+			out.ok = self.static_type_wrecv(v, args[1])
+		else if pname == "value" then
+			out.ok = self.value(v, args[1])
+		else
+			super
+		end
+	end
+
+	protected fun value(v: NaiveInterpreter, recv: Instance): Instance
+	do
+		return v.read_attribute(self.mpropdef.mproperty, recv)
+	end
+
+	protected fun static_type_wrecv(v: NaiveInterpreter, recv: Instance): TypeInfo
+	do
+		var anchor = v.type_repo.from_mtype(recv.mtype).reflectee.as(MClassType)
+		var static_type = self.get_static_type(v).reflectee
+		var anchored_mtype = static_type.anchor_to(v.mainmodule, anchor)
+		return v.type_repo.from_mtype(anchored_mtype)
+	end
+
+	protected fun get_static_type(v: NaiveInterpreter): TypeInfo
+	do
+		if isset _static_type then
+			return static_type
+		end
+		var intro = self.mpropdef.mproperty.intro
+		var mtype = intro.static_mtype
+		assert mtype != null
+		if mtype isa MParameterType then
+			static_type = new TypeInfo(v.type_type, mtype)
+		else
+			static_type = v.type_repo.from_mtype(mtype)
+		end
+		return static_type
+	end
 end
 
 class VirtualTypeInfo
