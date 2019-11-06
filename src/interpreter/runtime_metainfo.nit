@@ -75,7 +75,6 @@ redef class NaiveInterpreter
 		# NOTE: If we were to have multiple implementation
 		# we should remove the `noinit` and code against an
 		# abstraction instead of a concrete type
-
 		self.type_repo = new TypeRepo(model)
 		self.property_factory = new PropertyFactory(model)
 
@@ -83,8 +82,9 @@ redef class NaiveInterpreter
 		runtime_type_repo = new TypeRepoImpl(runtime_type_repo_type, self.type_repo)
 
 		self.type_type = model.get_mclass("TypeInfo").mclass_type
-		self.type_iterator_type = model.get_mclass("TypeInfoIterator").mclass_type
-		self.prop_iterator_type = model.get_mclass("PropertyInfoIterator").mclass_type
+		var prop_type = model.get_mclass("PropertyInfo").mclass_type
+		self.type_iterator_type = model.get_mclass("RuntimeInfoIterator").get_mtype([self.type_type])
+		self.prop_iterator_type = model.get_mclass("RuntimeInfoIterator").get_mtype([prop_type])
 	end
 
 	fun isa_array(instance: Instance): Bool
@@ -497,36 +497,40 @@ abstract class PropertyInfo
 
 	protected type MPROPDEF: MPropDef
 	protected var mpropdef: MPROPDEF
-	protected var cached_parent: PropertyInfo is noinit
+	protected var cached_linearization: Array[PropertyInfo] is noinit
 
 	redef fun dispatch(v, pname, args, out)
 	do
-		if pname == "to_s" then
-			out.ok = v.string_instance(self.mpropdef.name)
-		else if pname == "parent" then
-			out.ok = self.parent(v)
+		if pname == "name" then
+			out.ok = self.name(v)
+		else if pname == "get_linearization" then
+			out.ok = self.get_linearization(v)
 		else if pname == "owner" then
 			out.ok = self.owner(v)
 		end
 	end
 
-	protected fun parent(v: NaiveInterpreter): PropertyInfo
+	protected fun name(v: NaiveInterpreter): Instance
 	do
-		# If mpropdef is already the introduction, we can't ask for next definition.
-		# Thus, when mpropdef is intro then parent = self
-		if self.mpropdef.is_intro then
-			return self
-		end
-		if not isset _cached_parent then
+		return v.string_instance(self.mpropdef.name)
+	end
+
+	protected fun get_linearization(v: NaiveInterpreter): InstanceIterator[PropertyInfo]
+	do
+		if not isset _cached_linearization then
 			var mpropdef = self.mpropdef
 			var mmodule = v.mainmodule
 			var mclassdef = mpropdef.mclassdef
 			# We need an anchored type to call lookup_next_definition
 			var bound_mtype = mclassdef.bound_mtype
-			var parentdef = mpropdef.lookup_next_definition(mmodule, bound_mtype)
-			self.cached_parent = v.property_factory.build(parentdef)
+			var linearized_mpropdefs = mpropdef.mproperty.lookup_all_definitions(mmodule, bound_mtype)
+			self.cached_linearization = new Array[PropertyInfo]
+			for propdef in linearized_mpropdefs do
+				self.cached_linearization.add(v.property_factory.build(propdef))
+			end
 		end
-		return self.cached_parent
+
+		return new InstanceIterator[PropertyInfo](v.prop_iterator_type, cached_linearization.iterator)
 	end
 
 	protected fun owner(v: NaiveInterpreter): TypeInfo

@@ -32,23 +32,32 @@ end
 
 interface PropertyInfo
 	super RuntimeInfo
-	fun parent: SELF is intern
 	fun owner: TypeInfo is intern
 
 	# Return true if `self` and `other` come from the same introduction.
-	fun equiv(other: SELF): Bool
-	do
-		if self == other then return true
-		var my = parent
-		var his = other.parent
-		while my != my.parent or his != his.parent do
-			my = my.parent
-			his = his.parent
+	fun equiv(other: SELF): Bool is intern do
+		var my = self.get_linearization
+		var his = other.get_linearization
+		var last1 = self
+		var last2 = other
+		while my.is_ok or his.is_ok do
+			if my.is_ok then
+				last1 = my.item
+				my.next
+			end
+			if his.is_ok then
+				last2 = his.item
+				his.next
+			end
 		end
-		return my == his
+		return last1 == last2
 	end
 
-	redef fun to_s is intern
+	fun name: String is intern
+
+	# Returns an iterator that yields the next super property in the
+	# linearization order.
+	fun get_linearization: Iterator[SELF] is intern
 
 	fun is_valid_recv(object: Object): Bool
 	do
@@ -88,15 +97,8 @@ universal TypeRepo
 	fun object_type(obj: Object): TypeInfo is intern
 end
 
-universal TypeInfoIterator
-	super Iterator[TypeInfo]
-	redef fun is_ok is intern
-	redef fun next is intern
-	redef fun item is intern
-end
-
-universal PropertyInfoIterator
-	super Iterator[PropertyInfo]
+universal RuntimeInfoIterator[E: RuntimeInfo]
+	super Iterator[E]
 	redef fun is_ok is intern
 	redef fun next is intern
 	redef fun item is intern
