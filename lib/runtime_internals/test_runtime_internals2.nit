@@ -27,7 +27,7 @@ end
 fun get_prop(name: String, ty: TypeInfo): PropertyInfo
 do
 	for p in ty.properties do
-		if p.to_s == name then return p
+		if p.name == name then return p
 	end
 	abort
 end
@@ -128,13 +128,6 @@ p1 = get_prop("p1", tZ1)
 p11 = get_prop("p1", tZ2)
 p111 = get_prop("p1", tZ3)
 p2 = get_prop("p2", tZ3)
-
-# Z1::p1 has been refined in one of the import
-assert p1.parent != p1
-assert p11.parent == p1
-assert p11.parent.parent == p1.parent
-assert p11.parent.parent.parent == p1.parent.parent
-assert p111.parent == p11
 
 assert p1.owner == tZ1
 assert p11.owner == tZ2

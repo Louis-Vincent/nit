@@ -121,12 +121,6 @@ class TestPropertyQuery
 		abort
 	end
 
-	fun test_prop_super is test do
-		assert p1.parent != p1
-		assert p11.parent == p1
-		assert p111.parent == p11
-	end
-
 	fun test_owner is test do
 		assert p1.owner == tZ1
 		assert p11.owner == tZ2
