@@ -29,6 +29,19 @@ redef class Model
 		var mclasses = self.get_mclasses_by_name(classname).as(not null)
 		return mclasses.first
 	end
+
+	fun get_mclass_in_mmodule(classname: String, intro_mmodule_name: String): MClass
+	is
+		expect(self.has_mclass(classname))
+	do
+		var mclasses = self.get_mclasses_by_name(classname).as(not null)
+		for mclass in mclasses do
+			if mclass.intro_mmodule.name == intro_mmodule_name then
+				return mclass
+			end
+		end
+		abort
+	end
 end
 
 redef class MType
@@ -71,20 +84,20 @@ redef class NaiveInterpreter
 	init
 	do
 		var model = self.mainmodule.model
+		var mmodule_name = "runtime_internals"
+		if model.has_mclass("TypeRepo") then
+			self.type_repo = new TypeRepo(model)
+			self.property_factory = new PropertyFactory(model)
 
-		# NOTE: If we were to have multiple implementation
-		# we should remove the `noinit` and code against an
-		# abstraction instead of a concrete type
-		self.type_repo = new TypeRepo(model)
-		self.property_factory = new PropertyFactory(model)
+			var runtime_type_repo_type = model.get_mclass_in_mmodule("TypeRepo", mmodule_name).mclass_type
+			runtime_type_repo = new TypeRepoImpl(runtime_type_repo_type, self.type_repo)
 
-		var runtime_type_repo_type = model.get_mclass("TypeRepo").mclass_type
-		runtime_type_repo = new TypeRepoImpl(runtime_type_repo_type, self.type_repo)
+			self.type_type = model.get_mclass_in_mmodule("TypeInfo", mmodule_name).mclass_type
+			var prop_type = model.get_mclass_in_mmodule("PropertyInfo", mmodule_name).mclass_type
 
-		self.type_type = model.get_mclass("TypeInfo").mclass_type
-		var prop_type = model.get_mclass("PropertyInfo").mclass_type
-		self.type_iterator_type = model.get_mclass("RuntimeInfoIterator").get_mtype([self.type_type])
-		self.prop_iterator_type = model.get_mclass("RuntimeInfoIterator").get_mtype([prop_type])
+			self.type_iterator_type = model.get_mclass_in_mmodule("RuntimeInfoIterator", mmodule_name).get_mtype([self.type_type])
+			self.prop_iterator_type = model.get_mclass_in_mmodule("RuntimeInfoIterator", mmodule_name).get_mtype([prop_type])
+		end
 	end
 
 	fun isa_array(instance: Instance): Bool
@@ -124,7 +137,7 @@ class TypeRepo
 	do
 		if model.has_mclass(name) then
 			assert is_unique_class: model.is_unique(name)
-			var mclass_type = model.get_mclass(name).intro.bound_mtype
+			var mclass_type = model.get_mclass(name).mclass_type
 			return from_mclass_type(mclass_type)
 		else
 			return null
@@ -395,7 +408,7 @@ class TypeInfo
 
 	protected fun is_generic(v: NaiveInterpreter): Instance
 	do
-		var res = self.reflectee isa MGenericType
+		var res = self.reflectee isa MGenericType and self.reflectee.need_anchor
 		return v.bool_instance(res)
 	end
 
@@ -576,8 +589,8 @@ class AttributeInfo
 	do
 		if pname == "static_type" then
 			out.ok = self.get_static_type(v)
-		else if pname == "static_type_wrecv" then
-			out.ok = self.static_type_wrecv(v, args[1])
+		else if pname == "dynamic_type" then
+			out.ok = self.dynamic_type(v, args[1])
 		else if pname == "value" then
 			out.ok = self.value(v, args[1])
 		else
@@ -590,9 +603,11 @@ class AttributeInfo
 		return v.read_attribute(self.mpropdef.mproperty, recv)
 	end
 
-	protected fun static_type_wrecv(v: NaiveInterpreter, recv: Instance): TypeInfo
+	protected fun dynamic_type(v: NaiveInterpreter, recv: Instance): TypeInfo
+	is
+		expect(recv isa TypeInfo)
 	do
-		var anchor = v.type_repo.from_mtype(recv.mtype).reflectee.as(MClassType)
+		var anchor = recv.as(TypeInfo).reflectee.undecorate.as(MClassType)
 		var static_type = self.get_static_type(v).reflectee
 		var anchored_mtype = static_type.anchor_to(v.mainmodule, anchor)
 		return v.type_repo.from_mtype(anchored_mtype)
