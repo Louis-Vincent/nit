@@ -30,11 +30,14 @@ interface Reflected
 	fun name: String is abstract
 end
 
+interface Visibility
+end
+
 interface Property
 	super Reflected
 
 	# The type that introduced this property
-	fun introduced_by: Type is abstract
+	fun introducer: Type is abstract
 	fun is_public: Bool is abstract
 	fun is_private: Bool is abstract
 	fun is_protected: Bool is abstract
@@ -46,10 +49,8 @@ end
 
 interface Attribute
 	super Property
-end
 
-interface Constructor
-	super Method
+	fun static_type: Type is abstract
 end
 
 # A type parameter in a generic type
@@ -73,6 +74,7 @@ end
 # Base interface for all class representing the NIT type system at runtime.
 # It provides basic queries for the type system.
 interface Type
+	super Reflected
 
 	# All supertypes of `self` in linearized order.
 	fun supertypes: SequenceRead[Type] is abstract
@@ -84,6 +86,10 @@ interface Type
 	# Returns a set of property introduced by this type and all its
 	# refinements
 	fun declared_properties: Set[Property] is abstract
+
+	fun declared_attributes: SequenceRead[Attribute] is abstract
+
+	fun declared_methods: SequenceRead[Property] is abstract
 
 	# Returns a `Property` named `property_name` if it exists, otherwise
 	# `null`.
@@ -151,19 +157,12 @@ interface Type
 
 	# Returns true if current args match the default init signature,
 	# otherwise false.
-	fun can_new_instance(args: SequenceRead[Object]): Bool is abstract
-
-	# Same as `can_new_instance` but for a specific named init.
-	fun can_new_instance2(args: SequenceRead[Object], constr_name: String): Bool is abstract
+	fun can_new_instance(args: SequenceRead[nullable Object]): Bool is abstract
 
 	# Command to instantiate a new object.
 	# `args` : arguments for the constructor.
-	fun new_instance(args: SequenceRead[Object]): Object
+	fun new_instance(args: SequenceRead[nullable Object]): Object
 	is abstract, expect(self.can_new_instance(args))
-
-	# Same as `new_instance` command but for a specific named init.
-	fun new_instance2(args: SequenceRead[Object], constr_name: String): Object
-	is abstract, expect(self.can_new_instance2(args, constr_name))
 end
 
 class NullableType
@@ -209,9 +208,6 @@ interface GenericType
 		return resolve_with(types)
 	end
 
-	redef fun can_new_instance(args) do return false
-	redef fun can_new_instance2(args, constr_name) do return false
-
 	fun resolve_with(types: SequenceRead[Type]): DerivedType
 	is abstract, expect(are_valid_type_values(types))
 
@@ -232,6 +228,8 @@ end
 # A generic type who had been resolved.
 interface DerivedType
 	super Type
+
+	fun type_arguments: SequenceRead[Type] is abstract
 
 	# The type constructor who instantiated `self`.
 	fun base: GenericType is abstract
