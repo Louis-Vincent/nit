@@ -617,27 +617,33 @@ class NaiveInterpreter
 		if callsite == null then return null
 		var initializers = callsite.mpropdef.initializers
 		if not initializers.is_empty then
-			var recv = arguments.first
-			var i = 1
-			for p in initializers do
-				if p isa MMethod then
-					var args = [recv]
-					for x in p.intro.msignature.mparameters do
-						args.add arguments[i]
-						i += 1
-					end
-					self.send(p, args)
-				else if p isa MAttribute then
-					assert recv isa MutableInstance
-					write_attribute(p, recv, arguments[i])
-					i += 1
-				else abort
-			end
-			assert i == arguments.length
-
-			return send(callsite.mproperty, [recv])
+			invoke_initializers(initializers, arguments)
+			return send(callsite.mproperty, [arguments.first])
 		end
 		return send(callsite.mproperty, arguments)
+	end
+
+	# Resolve every initializers for the receiver in `arguments[0]`
+	fun invoke_initializers(initializers: SequenceRead[MProperty], arguments: SequenceRead[Instance])
+	is
+		# minus 1 since we have the receiver inside `arguments`
+		expect(initializers.length == arguments.length - 1)
+	do
+		var recv = arguments.first
+		var i = 1
+		for p in initializers do
+			if p isa MMethod then
+				var args = [recv]
+				for x in p.intro.msignature.mparameters do
+					args.add arguments[i]
+				end
+				self.send(p, args)
+			else if p isa MAttribute then
+				assert recv isa MutableInstance
+				write_attribute(p, recv, arguments[i])
+			else abort
+			i += 1
+		end
 	end
 
 	# Execute `mproperty` for a `args` (where `args[0]` is the receiver).
