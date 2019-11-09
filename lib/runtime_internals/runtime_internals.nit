@@ -12,7 +12,7 @@ universal TypeInfo
 	fun is_interface: Bool is intern
 	fun is_abstract: Bool is intern
 	fun is_universal: Bool is intern
-	fun is_derived: Bool is intern
+	fun is_derived: Bool is intern, expect(not is_generic)
 	fun is_type_param: Bool is intern
 	fun is_stdclass: Bool
 	do
@@ -27,6 +27,7 @@ universal TypeInfo
 	fun type_arguments: SequenceRead[TypeInfo] is intern, expect(is_derived)
 	fun resolve(args: Array[TypeInfo]): TypeInfo is intern, expect(is_generic)
 	fun iza(other: TypeInfo): Bool is intern
+	fun new_instance(args: Array[Object]): Object is intern, expect(not is_generic)
 	redef fun to_s is intern
 end
 
@@ -69,11 +70,12 @@ end
 universal AttributeInfo
 	super PropertyInfo
 
-	# Returns the static type of the current attribute anchored by a receiver.
-	# This function is useful if the attribute is typed by a type parameter.
-	# This function ensures the return `TypeInfo` is closed.
-	fun static_type_wrecv(recv: Object): TypeInfo
-	is intern, expect(is_valid_recv(recv))
+	# Returns the "dynamic" type of the current attribute derived by another
+	# type (the receiver type most of the time). This function is useful if
+	# the attribute is typed by a type parameter. This function ensures the
+	# return `TypeInfo` is closed.
+	fun dynamic_type(recv_type: TypeInfo): TypeInfo
+	is intern, expect(recv_type.iza(self.owner))
 
 	# Returns the static type of the current attribute.
 	# This function is less safer than `type_info_wrecv` since it may
@@ -85,6 +87,7 @@ end
 
 universal MethodInfo
 	super PropertyInfo
+	fun parameter_types: SequenceRead[TypeInfo] is intern
 	fun call(args: Array[nullable Object]): nullable Object is intern
 end
 

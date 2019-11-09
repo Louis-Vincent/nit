@@ -278,6 +278,89 @@ class TypeRepoImpl
 	end
 end
 
+private abstract class Constructor
+	private var mtype: MClassType
+	private var mpropdef: MMethodDef
+
+	new(mtype: MClassType, mpropdef: MMethodDef)
+	do
+		var mprop = mpropdef.mproperty
+		if mprop.is_new then
+			return new NewFactory(mtype, mpropdef)
+		else if mprop.is_init then
+			var kind = mtype.mclass.kind
+			if kind == concrete_kind then
+				return new GeneralizedInitializers(mtype, mpropdef)
+			end
+		end
+		return new IllegalConstructor(mtype, mpropdef)
+	end
+
+	fun new_instance(v: NaiveInterpreter, args: SequenceRead[Instance]): Instance is abstract
+end
+
+private class NullConstructor
+	super Constructor
+end
+
+private class IllegalConstructor
+	super Constructor
+end
+
+private class Constructors
+	super Array[Constructor]
+
+	# Folds an array of constructors and return the most dominant
+	# constructors.
+	private fun fold_constrs : Constructor
+	is
+		expect(not self.is_empty)
+	do
+		var constr = self.first
+		for c in self do
+			if constr isa NewFactory then break
+			if not c isa IllegalConstructor then
+				constr = c
+			end
+		end
+		return constr
+	end
+end
+
+private class NewFactory
+	super Constructor
+
+	redef fun new_instance(v, args)
+	do
+		var msignature = mpropdef.msignature.as(not null)
+		var args2 = new Array[Instance]
+		args2.add_all(args)
+		var temp_recv = new MutableInstance(self.mtype)
+		v.init_instance(temp_recv)
+		args2.unshift temp_recv
+		var res = v.send(mpropdef.mproperty, args2)
+		assert res != null
+		return res
+	end
+end
+
+private class GeneralizedInitializers
+	super Constructor
+
+	redef fun new_instance(v, args)
+	do
+		var args2 = new Array[Instance]
+		args2.add_all(args)
+		var mpropdef = self.mpropdef
+		var instance = new MutableInstance(self.mtype)
+		v.init_instance(instance)
+		args2.unshift instance
+		v.invoke_initializers(mpropdef.initializers, args2)
+		v.send(mpropdef.mproperty, [instance])
+		return instance
+	end
+end
+
 class TypeInfo
 	super Universal
 	var reflectee: MType
@@ -321,7 +404,49 @@ class TypeInfo
 			out.ok = self.type_arguments(v)
 		else if pname == "iza" then
 			out.ok = self.iza(v, args[1].as(TypeInfo))
+		else if pname == "new_instance" then
+			out.ok = self.new_instance(v, args[1])
 		end
+	end
+
+	protected fun new_instance(v: NaiveInterpreter, arg: Instance): Instance
+	is
+		expect(not self.reflectee.need_anchor,
+			self.reflectee.undecorate isa MClassType)
+	do
+		var init_args = v.runtime_array_to_native(arg)
+		var mmodule = v.mainmodule
+		var mtype = self.reflectee.undecorate.as(MClassType)
+		if not isset _my_properties then
+			self.properties(v)
+		end
+		var constructors = new Constructors
+		for propinfo in my_properties do
+			var mpropdef = propinfo.mpropdef
+			if mpropdef isa MMethodDef then
+				var mprop = mpropdef.mproperty
+				if mprop.is_init or mprop.is_new then
+					constructors.add(new Constructor(mtype, mpropdef))
+				end
+			end
+		end
+		if constructors.is_empty then
+			v.fatal("Fatal error: found no constructor for type: `{self.reflectee}`")
+			abort
+		end
+		var constr = constructors.fold_constrs
+		if constr isa IllegalConstructor then
+			v.fatal("Fatal error: illegal constructor invokation for type: `{self.reflectee}`")
+			abort
+		else
+			return constr.new_instance(v, init_args)
+		end
+		#var instance = new MutableInstance(self.reflectee)
+		#v.init_instance(instance)
+		#init_args.unshift instance
+		#v.invoke_initializers(my_init.initializers, init_args)
+		#v.send(my_init.mproperty, [instance])
+		#return instance
 	end
 
 	protected fun iza(v: NaiveInterpreter, other: TypeInfo): Instance
@@ -562,9 +687,23 @@ class MethodInfo
 	do
 		if pname == "call" then
 			out.ok = self.call(v, args)
+		else if pname == "parameter_types" then
+			out.ok = self.parameter_types(v)
 		else
 			super
 		end
+	end
+
+	fun parameter_types(v: NaiveInterpreter): Instance
+	do
+		var msignature = mpropdef.new_msignature or else mpropdef.msignature
+		var res = new Array[TypeInfo]
+		for mparam in msignature.mparameters do
+			var ty = v.type_repo.from_mtype(mparam.mtype)
+			res.push(ty)
+		end
+		v.debug(msignature.return_mtype?.to_s or else "rien")
+		return v.array_instance(res, v.type_type)
 	end
 
 	fun call(v: NaiveInterpreter, args: SequenceRead[Instance]): nullable Instance
