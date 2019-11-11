@@ -1,34 +1,60 @@
+# This file is part of NIT ( http://www.nitlanguage.org ).
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+module test_runtime_internals3
+
 import runtime_internals
 
-class A
-	fun p1 do print 1
+class K[E]
+	var p1: E
 end
-class B
-	super A
-	redef fun p1
+
+class L
+	var x: Int
+	var y: Int
+	var z: Int is noinit
+	init
 	do
-		super
-		print 2
-	end
-end
-class C
-	super A
-	redef fun p1
-	do
-		super
-		print 3
+		z = x + y
 	end
 end
 
-class D
-	super B
-	super C
+abstract class J
+	var x: Int
+	var y: Int
 
-	redef fun p1
+	new(x: Int, y: Int)
 	do
-		super
-		print 4
+		if x + y > 10 then
+			return new J1(x,y)
+		else
+			return new J2(x,y)
+		end
 	end
+end
+
+class J1
+	super J
+	var z: Int is noinit
+	init
+	do
+		z = x + y
+	end
+end
+
+class J2
+	super J
 end
 
 fun get_prop(name: String, ty: TypeInfo): PropertyInfo
@@ -39,17 +65,23 @@ do
 	abort
 end
 
-var tA = type_repo.get_type("A").as(not null)
-var tB = type_repo.get_type("B").as(not null)
-var tC = type_repo.get_type("C").as(not null)
-var tD = type_repo.get_type("D").as(not null)
+var tK = type_repo.get_type("K").as(not null)
+var tL = type_repo.get_type("L").as(not null)
+var tJ = type_repo.get_type("J").as(not null)
+var tJ1 = type_repo.get_type("J1").as(not null)
+var tInt = type_repo.get_type("Int").as(not null)
+var tK_Int = tK.resolve([tInt])
+var p1 = get_prop("_p1", tK_Int).as(AttributeInfo)
+print p1.dynamic_type(tK_Int)
 
-var p1 = get_prop("p1", tD)
-var p11 = get_prop("p1", tC)
-var p111 = get_prop("p1", tB)
-var p1111 = get_prop("p1", tA)
-print "{[p1, p11, p111, p1111]}"
+var b1 = tL.new_instance([1,10]).as(L)
+assert b1.z == 11
 
-for sup in p1.get_linearization do
-	print "{sup.name}: {sup}"
-end
+var c1 = tJ.new_instance([1,10])
+var c2 = tJ.new_instance([1,1])
+var c3 = tJ1.new_instance([10, 100])
+assert c1 isa J1
+assert c1.z == 11
+assert c2 isa J2
+assert c3 isa J1
+assert c3.z == 110
