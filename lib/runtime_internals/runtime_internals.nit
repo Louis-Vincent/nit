@@ -35,10 +35,9 @@ universal TypeInfo
 	do
 		return not is_abstract and not is_universal and not is_interface
 	end
-
 	fun supertypes: Iterator[TypeInfo] is intern, expect(not is_type_param)
 	fun properties: Iterator[PropertyInfo] is intern, expect(not is_type_param)
-	fun is_nullable: Bool is intern
+	fun as_not_null: TypeInfo is intern
 	fun as_nullable: TypeInfo is intern
 	fun type_param_bounds: SequenceRead[TypeInfo] is intern, expect(is_generic)
 	fun type_arguments: SequenceRead[TypeInfo] is intern, expect(is_derived)
