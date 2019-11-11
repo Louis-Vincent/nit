@@ -30,32 +30,35 @@ class CommandParser
 
 		var map = new HashMap[String, nullable String]
 		for match in input.search_all(re) do
-			var option = match.subs.first.as(not null)
-			var args = match.to_s.split(option.to_s)[1]
-			map[option.to_s] = if args == "" then null else args
+			var option = match.subs.first.as(not null).to_s
+			var trimed_option = option
+			while trimed_option.first == '-' do
+				trimed_option = trimed_option.substring_from(1)
+			end
+			var args = match.to_s.split(option)[1]
+			map[trimed_option] = if args == "" then null else args.trim
 		end
 
 		var xs = new Array[nullable Object]
 		for attr in ty.declared_attributes do
-			var sty = attr.static_type
-			if sty.iza(tSeqRead) and sty isa DerivedType then
-				assert sty.type_arguments.first.is_primitive
-			else
-				assert sty.is_primitive
-			end
-			if map.has_key(sty.name) then
-				var value = map[sty.name]
-				if sty == tBool then
+			var my_type = attr.static_type
+			var is_optional = my_type.is_nullable
+			var my_type2 = my_type.as_not_null
+			assert my_type2.is_primitive
+			var name = attr.name
+			if map.has_key(name) then
+				var value = map[name]
+				if my_type2 == tBool then
 					xs.push(true)
-				else if sty == tInt then
+				else if my_type2 == tInt then
 					assert value != null
 					xs.push(value)
-				else if sty == tString then
+				else if my_type2 == tString then
 					assert value != null
 					xs.push(value)
 				end
 			else
-				if sty == tBool then
+				if my_type2 == tBool then
 					xs.push(false)
 				else
 					xs.push(null)
@@ -90,10 +93,19 @@ Executes the unit tests from Nit source files.
   --nitc                  nitc compiler to use
 """
 	end
+
+	redef fun to_s
+	do
+		return "warn: {warn}, quiet: {quiet}, keep_going: {keep_going}, nitc: {nitc or else "null"}"
+	end
 end
 
 var input = "--warn --nitc ../src/nitc arg1 arg2 --quiet"
 var ty = get_type("NitUnitCLI").as(not null)
 var cmd_parser = new CommandParser
 var res = cmd_parser.parse(input, ty).as(NitUnitCLI)
+assert res.warn
+assert res.quiet
+assert not res.keep_going
+assert res.nitc == "../src/nitc arg1 arg2"
 print res

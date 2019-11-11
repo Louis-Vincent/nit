@@ -18,6 +18,13 @@ import runtime_reflection
 import runtime_internals
 private import pthreads
 
+redef class TypeInfo
+	fun is_nullable: Bool
+	do
+		return self == self.as_nullable
+	end
+end
+
 redef class Sys
 	super Environment
 
@@ -138,6 +145,7 @@ class TypeImpl
 	super Type
 	protected var type_info: TypeInfo
 	private var mirror_repo: MirrorRepository
+
 	private var cached_supertypes: nullable SequenceRead[TypeImpl] = null
 	private var cached_properties: nullable Set[Property] = null
 
@@ -185,6 +193,7 @@ class TypeImpl
 			if prop.introducer == self then
 				res.add(prop)
 			end
+
 		end
 		return res
 	end
@@ -212,13 +221,52 @@ class TypeImpl
 		return null
 	end
 
+	redef fun as_nullable
+	do
+		var nullabl = self.type_info.as_nullable
+		var res = self.mirror_repo.from_type_info(nullabl)
+		return res
+	end
+
+	redef fun as_not_null: TypeImpl
+	do
+		if not is_nullable then return self
+		var notnull = self.type_info.as_not_null
+		var res = self.mirror_repo.from_type_info(notnull)
+		return res
+	end
+
 	redef fun is_primitive
 	do
 		var tInt = get_type("Int")
 		var tString = get_type("String")
 		var tFloat = get_type("Float")
 		var tChar = get_type("Char")
-		return self == tInt or self == tInt or self == tFloat or self == tChar
+		var tBool = get_type("Bool")
+		var primitives = [tInt, tString, tFloat, tChar, tBool]
+		var res = false
+		for p in primitives do res = res or self == p
+		return remais c'es
+	end
+
+	redef fun can_new_instance(args)
+	do
+		#for dp in declared_properties do
+		#		print dp.name
+		#end
+		return true
+	end
+
+	redef fun new_instance(args)
+	do
+		var args2 = new Array[nullable Object]
+		for a in args do args2.push(a)
+		return self.type_info.new_instance(args2)
+	end
+
+	redef fun name
+	do
+		return self.type_info.to_s
 	end
 end
 
@@ -257,18 +305,47 @@ abstract class PropertyImpl
 		var type_info = self.property_info.owner
 		return self.mirror_repo.from_type_info(type_info)
 	end
+
+	redef fun name
+	do
+		return self.property_info.name
+	end
 end
 
 class MethodImpl
 	super Method
 	super PropertyImpl
 	redef type INFO: MethodInfo
+
+	redef fun parameter_types
+	do
+		var type_infos = self.property_info.parameter_types
+		var res = new Array[Type]
+		for ti in type_infos do
+			var ty = self.mirror_repo.from_type_info(ti)
+			res.push(ty)
+		end
+		return res
+	end
 end
 
 class AttributeImpl
 	super Attribute
 	super PropertyImpl
 	redef type INFO: AttributeInfo
+
+	redef fun static_type
+	do
+		var static_type = self.property_info.static_type
+		var res = self.mirror_repo.from_type_info(static_type)
+		return res
+	end
+
+	redef fun name
+	do
+		var res = super
+		return res.substring_from(1)
+	end
 end
 
 class VirtualTypeImpl

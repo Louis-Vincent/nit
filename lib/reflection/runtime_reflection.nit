@@ -60,11 +60,11 @@ end
 
 interface Method
 	super Property
+	fun parameter_types: Sequence[Type] is abstract
 end
 
 interface Attribute
 	super Property
-
 	fun static_type: Type is abstract
 end
 
@@ -161,14 +161,14 @@ interface Type
 	# otherwise false.
 	fun iza(other: Type): Bool is abstract
 
-	fun as_nullable: NullableType
+	fun as_nullable: Type is abstract
+
+	fun is_nullable: Bool
 	do
-		if self isa NullableType then
-			return self
-		else
-			return new NullableType(self)
-		end
+		return	self == self.as_nullable
 	end
+
+	fun as_not_null: Type is abstract
 
 	# Returns true if current args match the default init signature,
 	# otherwise false.
@@ -178,24 +178,6 @@ interface Type
 	# `args` : arguments for the constructor.
 	fun new_instance(args: SequenceRead[nullable Object]): Object
 	is abstract, expect(self.can_new_instance(args))
-end
-
-class NullableType
-	super Type
-
-	protected var ty: Type
-
-	# Returns the underlying non-nullable type
-	fun unwrap: Type do return ty
-
-	redef fun iza(other)
-	do
-		if other isa NullableType then
-			return unwrap.iza(other.unwrap)
-		else
-			return unwrap.iza(other)
-		end
-	end
 end
 
 # Represents a generic type at runtime.
