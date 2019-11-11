@@ -154,10 +154,23 @@ class TypeRepo
 		var mclass_type = mtype.undecorate.as(MClassType)
 		var res = self.from_mclass_type(mclass_type)
 		if mtype isa MNullableType then
-			return res.as_nullable
+			return as_nullable(res)
 		else
 			return res
 		end
+	end
+
+	fun as_nullable(ty: TypeInfo): TypeInfo
+	do
+		if ty.is_nullable then return ty
+		if ty.nullable_self != null then
+			return ty.nullable_self.as(not null)
+		end
+		var type_type = model.get_mclass("TypeInfo").mclass_type
+		var res = new TypeInfo(type_type, ty.reflectee)
+		res.is_nullable = true
+		ty.nullable_self = res
+		return res
 	end
 
 	fun from_mclass_type(mclass_type: MClassType): TypeInfo
@@ -370,7 +383,7 @@ class TypeInfo
 
 	# To prevent too much duplication of type info, we cache its nullable
 	# equivalent
-	private var nullable_self: TypeInfo is noinit
+	private var nullable_self: nullable TypeInfo = null
 
 	redef fun dispatch(v, pname, args, out)
 	do
@@ -394,10 +407,10 @@ class TypeInfo
 			out.ok = self.properties(v)
 		else if pname == "resolve" then
 			out.ok = self.resolve(v, args)
-		else if pname == "is_nullable" then
-			out.ok = v.bool_instance(self.is_nullable)
+		else if pname == "as_not_null" then
+			out.ok = self.as_not_null(v)
 		else if pname == "as_nullable" then
-			out.ok = self.as_nullable
+			out.ok = self.as_nullable(v)
 		else if pname == "type_param_bounds" then
 			out.ok = self.type_param_bounds(v)
 		else if pname == "type_arguments" then
@@ -475,7 +488,8 @@ class TypeInfo
 		end
 
 		var derived_type = reflectee.mclass.get_mtype(args3)
-		return new TypeInfo(v.type_type, derived_type)
+		var res = v.type_repo.from_mtype(derived_type)
+		return res
 	end
 
 	protected fun type_param_bounds(v: NaiveInterpreter): Instance
@@ -511,24 +525,26 @@ class TypeInfo
 		return v.array_instance(types, v.type_type)
 	end
 
-	protected fun as_nullable: TypeInfo
+	protected fun as_not_null(v: NaiveInterpreter): TypeInfo
 	do
-		if self.is_nullable then
-			return self
-		else if not isset _nullable_self then
-			var dup = new TypeInfo(self.reflectee, self.reflectee)
-			dup.is_nullable = true
-			self.nullable_self = dup
-		end
-		return self.nullable_self
+		if not self.is_nullable then return self
+		return v.type_repo.from_mtype(self.reflectee)
+	end
+
+	protected fun as_nullable(v: NaiveInterpreter): TypeInfo
+	do
+		return v.type_repo.as_nullable(self)
 	end
 
 	protected fun to_string(v: NaiveInterpreter): Instance
 	do
+		var res: Instance
 		if self.is_nullable then
-			return v.string_instance("nullable {self.reflectee.name}")
+			res = v.string_instance("nullable {self.reflectee.name}")
+		else
+			res = v.string_instance(self.reflectee.name)
 		end
-		return v.string_instance(self.reflectee.name)
+		return res
 	end
 
 	protected fun is_generic(v: NaiveInterpreter): Instance
