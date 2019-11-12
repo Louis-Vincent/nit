@@ -16,37 +16,6 @@ module test_runtime_internals2
 
 import runtime_internals
 
-class F
-	fun p1 do print 1
-end
-class G
-	super F
-	redef fun p1
-	do
-		super
-		print 2
-	end
-end
-class H
-	super F
-	redef fun p1
-	do
-		super
-		print 3
-	end
-end
-
-class I
-	super G
-	super H
-
-	redef fun p1
-	do
-		super
-		print 4
-	end
-end
-
 fun get_prop(name: String, ty: TypeInfo): PropertyInfo
 do
 	for p in ty.properties do

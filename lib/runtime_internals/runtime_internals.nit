@@ -16,40 +16,55 @@
 module runtime_internals
 
 redef class Sys
-	fun type_repo: TypeRepo is intern
+	fun rti_repo: RuntimeInternalsRepo is intern
 end
 
 # Base class of all runtime entities exposed by the API
 interface RuntimeInfo
 end
 
-universal TypeInfo
-	super RuntimeInfo
-	fun is_generic: Bool is intern
+universal ClassInfo
+	fun superclasses: Iterator[TypeInfo] is intern
+	fun properties: Iterator[PropertyInfo] is intern
+	fun type_param_bounds: SequenceRead[TypeInfo] is intern
+	fun new_type(args: Array[TypeInfo]): TypeInfo is intern
+	fun bound_type: TypeInfo
+	do
+		var bounds = new Array[TypeInfo]
+		# Make a copy
+		for ty in type_param_bounds do
+			bounds.push(ty)
+		end
+		return self.new_type(bounds)
+	end
+	fun unbound_type: TypeInfo is intern
 	fun is_interface: Bool is intern
 	fun is_abstract: Bool is intern
 	fun is_universal: Bool is intern
-	fun is_derived: Bool is intern, expect(not is_generic)
-	fun is_type_param: Bool is intern
 	fun is_stdclass: Bool
 	do
 		return not is_abstract and not is_universal and not is_interface
 	end
-	fun supertypes: Iterator[TypeInfo] is intern, expect(not is_type_param)
-	fun properties: Iterator[PropertyInfo] is intern, expect(not is_type_param)
+	redef fun to_s is intern
+end
+
+universal TypeInfo
+	super RuntimeInfo
+	fun describee: ClassInfo is intern
+	fun is_generic: Bool is intern
+	fun is_derived: Bool is intern
+	fun is_type_param: Bool is intern
 	fun as_not_null: TypeInfo is intern
 	fun as_nullable: TypeInfo is intern
-	fun type_param_bounds: SequenceRead[TypeInfo] is intern, expect(is_generic)
-	fun type_arguments: SequenceRead[TypeInfo] is intern, expect(is_derived)
-	fun resolve(args: Array[TypeInfo]): TypeInfo is intern, expect(is_generic)
+	fun type_arguments: SequenceRead[TypeInfo] is intern
 	fun iza(other: TypeInfo): Bool is intern
-	fun new_instance(args: Array[Object]): Object is intern, expect(not is_generic)
+	fun new_instance(args: Array[Object]): Object is intern
 	redef fun to_s is intern
 end
 
 interface PropertyInfo
 	super RuntimeInfo
-	fun owner: TypeInfo is intern
+	fun introducer: ClassInfo is intern
 
 	# Return true if `self` and `other` come from the same introduction.
 	fun equiv(other: SELF): Bool is intern do
@@ -75,12 +90,6 @@ interface PropertyInfo
 	# Returns an iterator that yields the next super property in the
 	# linearization order.
 	fun get_linearization: Iterator[SELF] is intern
-
-	fun is_valid_recv(object: Object): Bool
-	do
-		var ty = type_repo.object_type(object)
-		return ty.iza(owner)
-	end
 end
 
 universal AttributeInfo
@@ -91,19 +100,19 @@ universal AttributeInfo
 	# the attribute is typed by a type parameter. This function ensures the
 	# return `TypeInfo` is closed.
 	fun dynamic_type(recv_type: TypeInfo): TypeInfo
-	is intern, expect(recv_type.iza(self.owner))
+	is intern, expect(recv_type.iza(introducer.bound_type))
 
 	# Returns the static type of the current attribute.
 	# This function is less safer than `type_info_wrecv` since it may
 	# return type parameter (aka open generic type).
 	fun static_type: TypeInfo is intern
 
-	fun value(recv: Object): Object is intern
+	fun value(recv: Object): nullable Object is intern
 end
 
 universal MethodInfo
 	super PropertyInfo
-	fun parameter_types: SequenceRead[TypeInfo] is intern
+	fun parameter_types(recv_type: TypeInfo): SequenceRead[TypeInfo] is intern
 	fun call(args: Array[nullable Object]): nullable Object is intern
 end
 
@@ -112,9 +121,9 @@ universal VirtualTypeInfo
 end
 
 # Entry point of the API.
-universal TypeRepo
-	fun get_type(typename: String): nullable TypeInfo is intern
+universal RuntimeInternalsRepo
 	fun object_type(obj: Object): TypeInfo is intern
+	fun get_classinfo(classname: String): nullable ClassInfo is intern
 end
 
 universal RuntimeInfoIterator[E: RuntimeInfo]
