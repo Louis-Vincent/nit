@@ -851,7 +851,11 @@ class PrimitiveInstance[E]
 		return self.val.is_same_instance(o.val)
 	end
 
-	redef fun to_s do return "{mtype}#{val.object_id}({val or else "null"})"
+	redef fun to_s do
+		var object_id = "null"
+		if val != null then object_id = "{val.object_id}"
+		return "{mtype}#{object_id}({val or else "null"})"
+	end
 
 	redef fun to_i do return val.as(Int)
 

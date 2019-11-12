@@ -70,10 +70,10 @@ end
 
 redef class NaiveInterpreter
 
-	var type_repo: TypeRepo is noinit
+	var rti_repo: RuntimeInternalsRepo is noinit
 
-	# There's only one instance of `TypeRepo` at runtime
-	var runtime_type_repo: TypeRepoImpl is noinit
+	# There's only one instance of `RuntimeInternalsRepo` at runtime
+	var runtime_rti_repo: RuntimeInternalsRepoImpl is noinit
 	var property_factory: PropertyFactory is noinit
 
 	# Runtime meta types
@@ -85,12 +85,12 @@ redef class NaiveInterpreter
 	do
 		var model = self.mainmodule.model
 		var mmodule_name = "runtime_internals"
-		if model.has_mclass("TypeRepo") then
-			self.type_repo = new TypeRepo(model)
+		if model.has_mclass("RuntimeInternalsRepo") then
+			self.rti_repo = new RuntimeInternalsRepo(model)
 			self.property_factory = new PropertyFactory(model)
 
-			var runtime_type_repo_type = model.get_mclass_in_mmodule("TypeRepo", mmodule_name).mclass_type
-			runtime_type_repo = new TypeRepoImpl(runtime_type_repo_type, self.type_repo)
+			var runtime_rti_repo_type = model.get_mclass_in_mmodule("RuntimeInternalsRepo", mmodule_name).mclass_type
+			runtime_rti_repo = new RuntimeInternalsRepoImpl(runtime_rti_repo_type, self.rti_repo)
 
 			self.type_type = model.get_mclass_in_mmodule("TypeInfo", mmodule_name).mclass_type
 			var prop_type = model.get_mclass_in_mmodule("PropertyInfo", mmodule_name).mclass_type
@@ -108,15 +108,18 @@ redef class NaiveInterpreter
 
 	# Transfers a runtime instance whose `mtype` is Array to an actual
 	# Array in the interpreter world.
-	fun runtime_array_to_native(array_instance: Instance): Array[Instance]
+	fun runtime_array_to_native(array_instance: Instance): nullable Array[Instance]
 	is
 		expect(isa_array(array_instance))
 	do
 		assert array_instance isa MutableInstance
 		var mtype = array_instance.mtype
 		var native_instance = self.send(self.force_get_primitive_method("items", mtype), [array_instance])
-		assert native_instance isa PrimitiveInstance[Array[Instance]]
-		return native_instance.val
+		if not native_instance isa PrimitiveInstance[Array[Instance]] then
+			return null
+		else
+			return native_instance.val#.as(Array[Instance])
+		end
 	end
 
 	# Converts a runtime `String` to an actual String in the interpreter
@@ -129,16 +132,27 @@ redef class NaiveInterpreter
 	end
 end
 
-class TypeRepo
+class RuntimeInternalsRepo
 	protected var model: Model
 	protected var cached_type = new HashMap[MClassType, TypeInfo]
+	protected var cached_class = new HashMap[MClass, ClassInfo]
 
-	fun get_type_by_name(name: String): nullable TypeInfo
+	#fun get_type_by_name(name: String): nullable TypeInfo
+	#do
+	#	if model.has_mclass(name) then
+	#		assert is_unique_class: model.is_unique(name)
+	#		var mclass_type = model.get_mclass(name).mclass_type
+	#		return from_mclass_type(mclass_type)
+	#	else
+	#		return null
+	#	end
+	#end
+
+	fun get_class_by_name(classname: String): nullable ClassInfo
 	do
-		if model.has_mclass(name) then
-			assert is_unique_class: model.is_unique(name)
-			var mclass_type = model.get_mclass(name).mclass_type
-			return from_mclass_type(mclass_type)
+		if self.model.has_mclass(classname) then
+			var mclass = self.model.get_mclass(classname)
+			return self.from_mclass(mclass)
 		else
 			return null
 		end
@@ -171,6 +185,18 @@ class TypeRepo
 		res.is_nullable = true
 		ty.nullable_self = res
 		return res
+	end
+
+	fun from_mclass(mclass: MClass): ClassInfo
+	do
+		if cached_class.has_key(mclass) then
+			return cached_class[mclass]
+		end
+		var class_type = model.get_mclass("ClassInfo").mclass_type
+		var res = new ClassInfo(class_type, mclass)
+		cached_class[mclass] = res
+		return res
+
 	end
 
 	fun from_mclass_type(mclass_type: MClassType): TypeInfo
@@ -229,8 +255,8 @@ redef class AMethPropdef
 	do
 		var cname = mpropdef.mclassdef.mclass.name
 		var pname = mpropdef.mproperty.name
-		if cname == "Sys" and pname == "type_repo" then
-			return v.runtime_type_repo
+		if cname == "Sys" and pname == "rti_repo" then
+			return v.runtime_rti_repo
 		else if args.length > 0 and args[0] isa Universal then
 			var recv = args[0].as(Universal)
 			var res = recv.resolve_intern_call(v, pname, args)
@@ -258,58 +284,53 @@ abstract class Universal
 	is abstract
 end
 
-# Exposed `TypeRepo` for the interpreter runtime.
-class TypeRepoImpl
+# Exposed `RuntimeInternalsRepo` for the interpreter runtime.
+class RuntimeInternalsRepoImpl
 	super Universal
-	var type_repo: TypeRepo
+	var rti_repo: RuntimeInternalsRepo
 
 	protected var cached_type = new HashMap[String, TypeInfo]
 	redef fun dispatch(v, pname, args, out)
 	do
-		if pname == "get_type" then
-			out.ok = self.get_type(v, args[1])
+		if pname == "get_classinfo" then
+			out.ok = self.get_classinfo(v, args[1])
 		else if pname == "object_type" then
 			out.ok = self.object_type(v, args[1])
 		end
 	end
 
-	# Returns an instance of `TypeInfo` if it exists a class whose name  is
-	# `typename`, otherwise null.
-	protected fun get_type(v: NaiveInterpreter, typename_arg: Instance): nullable TypeInfo
-	is
-		expect(typename_arg isa MutableInstance)
+	protected fun get_classinfo(v: NaiveInterpreter, classname: Instance): nullable ClassInfo
 	do
-		var typename = v.instance_to_s(typename_arg)
-		var res = self.type_repo.get_type_by_name(typename)
-		return res
+		var classname2 = v.instance_to_s(classname)
+		return self.rti_repo.get_class_by_name(classname2)
 	end
 
 	# Returns the underlying `TypeInfo` from a runtime instance.
 	protected fun object_type(v: NaiveInterpreter, object: Instance): TypeInfo
 	do
-		return type_repo.from_mtype(object.mtype)
+		return rti_repo.from_mtype(object.mtype)
 	end
 end
 
 private abstract class Constructor
-	private var mtype: MClassType
+	private var mclass: MClass
 	private var mpropdef: MMethodDef
 
-	new(mtype: MClassType, mpropdef: MMethodDef)
+	new(mclass: MClass, mpropdef: MMethodDef)
 	do
 		var mprop = mpropdef.mproperty
 		if mprop.is_new then
-			return new NewFactory(mtype, mpropdef)
+			return new NewFactory(mclass, mpropdef)
 		else if mprop.is_init then
-			var kind = mtype.mclass.kind
+			var kind = mclass.kind
 			if kind == concrete_kind then
-				return new GeneralizedInitializers(mtype, mpropdef)
+				return new GeneralizedInitializers(mclass, mpropdef)
 			end
 		end
-		return new IllegalConstructor(mtype, mpropdef)
+		return new IllegalConstructor(mclass, mpropdef)
 	end
 
-	fun new_instance(v: NaiveInterpreter, args: SequenceRead[Instance]): Instance is abstract
+	fun new_instance(v: NaiveInterpreter, args: SequenceRead[Instance], mtype: MClassType): Instance is abstract
 end
 
 private class NullConstructor
@@ -343,12 +364,12 @@ end
 private class NewFactory
 	super Constructor
 
-	redef fun new_instance(v, args)
+	redef fun new_instance(v, args, mtype)
 	do
 		var msignature = mpropdef.msignature.as(not null)
 		var args2 = new Array[Instance]
 		args2.add_all(args)
-		var temp_recv = new MutableInstance(self.mtype)
+		var temp_recv = new MutableInstance(mtype)
 		v.init_instance(temp_recv)
 		args2.unshift temp_recv
 		var res = v.send(mpropdef.mproperty, args2)
@@ -360,12 +381,12 @@ end
 private class GeneralizedInitializers
 	super Constructor
 
-	redef fun new_instance(v, args)
+	redef fun new_instance(v, args, mtype)
 	do
 		var args2 = new Array[Instance]
 		args2.add_all(args)
 		var mpropdef = self.mpropdef
-		var instance = new MutableInstance(self.mtype)
+		var instance = new MutableInstance(mtype)
 		v.init_instance(instance)
 		args2.unshift instance
 		v.invoke_initializers(mpropdef.initializers, args2)
@@ -374,12 +395,126 @@ private class GeneralizedInitializers
 	end
 end
 
+class ClassInfo
+	super Universal
+	protected var reflectee: MClass
+	protected var cached_properties: nullable SequenceRead[PropertyInfo] = null
+
+	redef fun dispatch(v, pname, args, out)
+	do
+		if pname == "classid" then
+			out.ok = v.int_instance(0)
+		else if pname == "properties" then
+			out.ok = self.properties(v)
+		else if pname == "type_param_bounds" then
+			out.ok = self.type_param_bounds(v)
+		else if pname == "unbound_type" then
+			out.ok = self.unbound_type(v)
+		else if pname == "to_s" then
+			out.ok = self.to_string(v)
+		else if pname == "new_type" then
+			out.ok = self.new_type(v, args[1])
+		end
+	end
+
+	protected fun new_type(v: NaiveInterpreter, args: Instance): TypeInfo
+	do
+		var temp = v.runtime_array_to_native(args) or else new Array[Instance]
+		var types = new Array[MType]
+		for ty in temp do
+			assert ty isa TypeInfo
+			types.push(ty.reflectee)
+		end
+		var mtype = self.reflectee.get_mtype(types)
+		return v.rti_repo.from_mtype(mtype)
+	end
+
+	protected fun unbound_type(v: NaiveInterpreter): TypeInfo
+	do
+		var mtype = self.reflectee.mclass_type
+		return v.rti_repo.from_mclass_type(mtype)
+	end
+
+	protected fun to_string(v: NaiveInterpreter): Instance
+	do
+		return v.string_instance(self.reflectee.name)
+	end
+
+	protected fun properties(v: NaiveInterpreter): InstanceIterator[PropertyInfo]
+	do
+		if cached_properties == null then
+			var mclass = self.reflectee
+			var mmodule = v.mainmodule
+			var mprops = mclass.collect_accessible_mproperties(mmodule)
+			# Cache our properties
+			var cached_properties = new Array[PropertyInfo]
+			for mprop in mprops do
+				# Get the most specific implementation
+				var mtype = mclass.mclass_type
+				# First, we need to make sure mtype doesn't need an anchor,
+				# otherwise we can't call `lookup_first_definition`.
+				if mtype.need_anchor then
+					mtype = mclass.intro.bound_mtype
+				end
+				var mpropdef = mprop.lookup_first_definition(mmodule, mtype)
+				var propertyinfo = v.property_factory.build(mpropdef)
+				cached_properties.push(propertyinfo)
+			end
+			self.cached_properties = cached_properties
+		end
+		return new InstanceIterator[PropertyInfo](v.prop_iterator_type, cached_properties.iterator)
+	end
+
+	protected fun type_param_bounds(v: NaiveInterpreter): Instance
+	do
+		var bound_mtype = self.reflectee.intro.bound_mtype
+		var type_args = bound_mtype.arguments
+		var types = new Array[TypeInfo]
+		var rti_repo = v.rti_repo
+		for t_arg in type_args do
+			assert t_arg isa MNullableType or t_arg isa MClassType
+			var ty = rti_repo.from_mtype(t_arg)
+			types.push(ty)
+		end
+		return v.array_instance(types, v.type_type)
+	end
+
+	private fun get_constructor(v: NaiveInterpreter): Constructor
+	do
+		if cached_properties == null then
+			# Load the properties
+			self.properties(v)
+		end
+		var constructors = new Constructors
+		for propinfo in cached_properties do
+			var mpropdef = propinfo.mpropdef
+			if mpropdef isa MMethodDef then
+				var mprop = mpropdef.mproperty
+				if mprop.is_init or mprop.is_new then
+					constructors.add(new Constructor(self.reflectee, mpropdef))
+				end
+			end
+		end
+		if constructors.is_empty then
+			v.fatal("Fatal error: found no constructor for type: `{self.reflectee}`")
+			abort
+		end
+		var constr = constructors.fold_constrs
+		if constr isa IllegalConstructor then
+			v.fatal("Fatal error: illegal constructor invokation for type: `{self.reflectee}`")
+			abort
+		else
+			return constr
+		end
+	end
+
+end
+
 class TypeInfo
 	super Universal
 	var reflectee: MType
 
 	protected var is_nullable = false
-	protected var my_properties: SequenceRead[PropertyInfo] is noinit
 
 	# To prevent too much duplication of type info, we cache its nullable
 	# equivalent
@@ -403,16 +538,12 @@ class TypeInfo
 			out.ok = self.is_type_param(v)
 		else if pname == "supertypes" then
 			out.ok = self.supertypes(v)
-		else if pname == "properties" then
-			out.ok = self.properties(v)
 		else if pname == "resolve" then
 			out.ok = self.resolve(v, args)
 		else if pname == "as_not_null" then
 			out.ok = self.as_not_null(v)
 		else if pname == "as_nullable" then
 			out.ok = self.as_nullable(v)
-		else if pname == "type_param_bounds" then
-			out.ok = self.type_param_bounds(v)
 		else if pname == "type_arguments" then
 			out.ok = self.type_arguments(v)
 		else if pname == "iza" then
@@ -427,39 +558,12 @@ class TypeInfo
 		expect(not self.reflectee.need_anchor,
 			self.reflectee.undecorate isa MClassType)
 	do
-		var init_args = v.runtime_array_to_native(arg)
+		var init_args = v.runtime_array_to_native(arg) or else new Array[Instance]
 		var mmodule = v.mainmodule
 		var mtype = self.reflectee.undecorate.as(MClassType)
-		if not isset _my_properties then
-			self.properties(v)
-		end
-		var constructors = new Constructors
-		for propinfo in my_properties do
-			var mpropdef = propinfo.mpropdef
-			if mpropdef isa MMethodDef then
-				var mprop = mpropdef.mproperty
-				if mprop.is_init or mprop.is_new then
-					constructors.add(new Constructor(mtype, mpropdef))
-				end
-			end
-		end
-		if constructors.is_empty then
-			v.fatal("Fatal error: found no constructor for type: `{self.reflectee}`")
-			abort
-		end
-		var constr = constructors.fold_constrs
-		if constr isa IllegalConstructor then
-			v.fatal("Fatal error: illegal constructor invokation for type: `{self.reflectee}`")
-			abort
-		else
-			return constr.new_instance(v, init_args)
-		end
-		#var instance = new MutableInstance(self.reflectee)
-		#v.init_instance(instance)
-		#init_args.unshift instance
-		#v.invoke_initializers(my_init.initializers, init_args)
-		#v.send(my_init.mproperty, [instance])
-		#return instance
+		var classinfo = v.rti_repo.from_mclass(mtype.mclass)
+		var constructor = classinfo.get_constructor(v)
+		return constructor.new_instance(v, init_args, mtype)
 	end
 
 	protected fun iza(v: NaiveInterpreter, other: TypeInfo): Instance
@@ -476,7 +580,7 @@ class TypeInfo
 	do
 		# NOTE: no need to cache derived type inside a table since
 		# `MClass::get_mtype` already does it for us.
-		var args2 = v.runtime_array_to_native(args[1])
+		var args2 = v.runtime_array_to_native(args[1]) or else new Array[Instance]
 
 		var reflectee = self.reflectee.as(MGenericType)
 		# Maps args2 to an array of `MClassType`
@@ -488,25 +592,8 @@ class TypeInfo
 		end
 
 		var derived_type = reflectee.mclass.get_mtype(args3)
-		var res = v.type_repo.from_mtype(derived_type)
+		var res = v.rti_repo.from_mtype(derived_type)
 		return res
-	end
-
-	protected fun type_param_bounds(v: NaiveInterpreter): Instance
-	is
-		expect(self.reflectee isa MGenericType)
-	do
-		var mgeneric = self.reflectee.as(MGenericType)
-		var bound_mtype = mgeneric.mclass.intro.bound_mtype
-		var type_args = bound_mtype.arguments
-		var types = new Array[TypeInfo]
-		var type_repo = v.type_repo
-		for t_arg in type_args do
-			assert t_arg isa MNullableType or t_arg isa MClassType
-			var ty = type_repo.from_mtype(t_arg)
-			types.push(ty)
-		end
-		return v.array_instance(types, v.type_type)
 	end
 
 	protected fun type_arguments(v: NaiveInterpreter): Instance
@@ -516,10 +603,10 @@ class TypeInfo
 		# NOTE: Should we look through the inheritance hierarchy?
 		var mgeneric = self.reflectee.as(MGenericType)
 		var types = new Array[TypeInfo]
-		var type_repo = v.type_repo
+		var rti_repo = v.rti_repo
 		for arg in mgeneric.arguments do
 			assert arg isa MNullableType or arg isa MClassType
-			var ty = type_repo.from_mtype(arg)
+			var ty = rti_repo.from_mtype(arg)
 			types.push(ty)
 		end
 		return v.array_instance(types, v.type_type)
@@ -528,12 +615,12 @@ class TypeInfo
 	protected fun as_not_null(v: NaiveInterpreter): TypeInfo
 	do
 		if not self.is_nullable then return self
-		return v.type_repo.from_mtype(self.reflectee)
+		return v.rti_repo.from_mtype(self.reflectee)
 	end
 
 	protected fun as_nullable(v: NaiveInterpreter): TypeInfo
 	do
-		return v.type_repo.as_nullable(self)
+		return v.rti_repo.as_nullable(self)
 	end
 
 	protected fun to_string(v: NaiveInterpreter): Instance
@@ -611,38 +698,10 @@ class TypeInfo
 			if mtype.need_anchor and not mclass_type.need_anchor then
 				mtype = mtype.anchor_to(mmodule, mclass_type)
 			end
-			var typeinfo = v.type_repo.from_mclass_type(mtype)
+			var typeinfo = v.rti_repo.from_mclass_type(mtype)
 			ancestors2.push(typeinfo)
 		end
 		return new InstanceIterator[TypeInfo](v.type_iterator_type, ancestors2.reverse_iterator)
-	end
-
-	protected fun properties(v: NaiveInterpreter): InstanceIterator[PropertyInfo]
-	is
-		expect(self.reflectee isa MClassType)
-	do
-		if not isset _my_properties then
-			var reflectee = self.reflectee.as(MClassType)
-			var mclass = reflectee.mclass
-			var mmodule = v.mainmodule
-			var mprops = mclass.collect_accessible_mproperties(mmodule)
-			# Cache our properties
-			var my_properties = new Array[PropertyInfo]
-			for mprop in mprops do
-				# Get the most specific implementation
-				var mtype = reflectee
-				# First, we need to make sure mtype doesn't need an anchor,
-				# otherwise we can't call `lookup_first_definition`.
-				if mtype.need_anchor then
-					mtype = mclass.intro.bound_mtype
-				end
-				var mpropdef = mprop.lookup_first_definition(mmodule, mtype)
-				var propertyinfo = v.property_factory.build(mpropdef)
-				my_properties.push(propertyinfo)
-			end
-			self.my_properties = my_properties
-		end
-		return new InstanceIterator[PropertyInfo](v.prop_iterator_type, my_properties.iterator)
 	end
 end
 
@@ -659,8 +718,8 @@ abstract class PropertyInfo
 			out.ok = self.name(v)
 		else if pname == "get_linearization" then
 			out.ok = self.get_linearization(v)
-		else if pname == "owner" then
-			out.ok = self.owner(v)
+		else if pname == "introducer" then
+			out.ok = self.introducer(v)
 		end
 	end
 
@@ -687,10 +746,10 @@ abstract class PropertyInfo
 		return new InstanceIterator[PropertyInfo](v.prop_iterator_type, cached_linearization.iterator)
 	end
 
-	protected fun owner(v: NaiveInterpreter): TypeInfo
+	protected fun introducer(v: NaiveInterpreter): ClassInfo
 	do
-		var classname = self.mpropdef.mclassdef.mclass.name
-		return v.type_repo.get_type_by_name(classname).as(not null)
+		var mclass = self.mpropdef.mclassdef.mclass
+		return v.rti_repo.from_mclass(mclass)
 	end
 end
 
@@ -704,21 +763,26 @@ class MethodInfo
 		if pname == "call" then
 			out.ok = self.call(v, args)
 		else if pname == "parameter_types" then
-			out.ok = self.parameter_types(v)
+			out.ok = self.parameter_types(v, args[1].as(TypeInfo))
 		else
 			super
 		end
 	end
 
-	fun parameter_types(v: NaiveInterpreter): Instance
+	fun parameter_types(v: NaiveInterpreter, recv_type: TypeInfo): Instance
 	do
 		var msignature = mpropdef.new_msignature or else mpropdef.msignature
 		var res = new Array[TypeInfo]
+		var mmodule = v.mainmodule
+		var mclass_type = recv_type.as(MClassType)
 		for mparam in msignature.mparameters do
-			var ty = v.type_repo.from_mtype(mparam.mtype)
+			var mtype = mparam.mtype
+			if mtype.need_anchor then
+				mtype = mtype.anchor_to(mmodule, mclass_type)
+			end
+			var ty = v.rti_repo.from_mtype(mtype)
 			res.push(ty)
 		end
-		v.debug(msignature.return_mtype?.to_s or else "rien")
 		return v.array_instance(res, v.type_type)
 	end
 
@@ -729,7 +793,7 @@ class MethodInfo
 		# Polymorphic send, since `MethodInfo` instance can be called
 		# between mixed implementation.
 		var runtime_array = args[1]
-		var args2 = v.runtime_array_to_native(runtime_array)
+		var args2 = v.runtime_array_to_native(runtime_array) or else new Array[Instance]
 		return v.send(self.mpropdef.mproperty, args2)
 	end
 end
@@ -765,7 +829,7 @@ class AttributeInfo
 		var anchor = recv.as(TypeInfo).reflectee.undecorate.as(MClassType)
 		var static_type = self.get_static_type(v).reflectee
 		var anchored_mtype = static_type.anchor_to(v.mainmodule, anchor)
-		return v.type_repo.from_mtype(anchored_mtype)
+		return v.rti_repo.from_mtype(anchored_mtype)
 	end
 
 	protected fun get_static_type(v: NaiveInterpreter): TypeInfo
@@ -779,7 +843,7 @@ class AttributeInfo
 		if mtype isa MParameterType then
 			static_type = new TypeInfo(v.type_type, mtype)
 		else
-			static_type = v.type_repo.from_mtype(mtype)
+			static_type = v.rti_repo.from_mtype(mtype)
 		end
 		return static_type
 	end
