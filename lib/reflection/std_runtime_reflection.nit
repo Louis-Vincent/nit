@@ -246,7 +246,7 @@ class TypeImpl
 		var primitives = [tInt, tString, tFloat, tChar, tBool]
 		var res = false
 		for p in primitives do res = res or self == p
-		return remais c'es
+		return res
 	end
 
 	redef fun can_new_instance(args)
@@ -317,8 +317,9 @@ class MethodImpl
 	super PropertyImpl
 	redef type INFO: MethodInfo
 
-	redef fun parameter_types
+	redef fun parameter_types(recv_type)
 	do
+		# TODO: check if we need to anchor every parameter
 		var type_infos = self.property_info.parameter_types
 		var res = new Array[Type]
 		for ti in type_infos do
@@ -334,10 +335,13 @@ class AttributeImpl
 	super PropertyImpl
 	redef type INFO: AttributeInfo
 
-	redef fun static_type
+	redef fun dyn_type(recv_type)
+	is
+		expect(not recv_type isa GenericType)
 	do
-		var static_type = self.property_info.static_type
-		var res = self.mirror_repo.from_type_info(static_type)
+		assert recv_type isa TypeImpl
+		var dyn_type = self.property_info.dynamic_type(recv_type.type_info)
+		var res = self.mirror_repo.from_type_info(dyn_type)
 		return res
 	end
 

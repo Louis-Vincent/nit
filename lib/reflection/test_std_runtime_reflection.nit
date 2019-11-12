@@ -41,24 +41,22 @@ class CommandParser
 
 		var xs = new Array[nullable Object]
 		for attr in ty.declared_attributes do
-			var my_type = attr.static_type
-			var is_optional = my_type.is_nullable
-			var my_type2 = my_type.as_not_null
-			assert my_type2.is_primitive
+			var attr_type = attr.dyn_type(ty).as_not_null
+			assert attr_type.is_primitive
 			var name = attr.name
 			if map.has_key(name) then
 				var value = map[name]
-				if my_type2 == tBool then
+				if attr_type == tBool then
 					xs.push(true)
-				else if my_type2 == tInt then
+				else if attr_type == tInt then
 					assert value != null
 					xs.push(value)
-				else if my_type2 == tString then
+				else if attr_type == tString then
 					assert value != null
 					xs.push(value)
 				end
 			else
-				if my_type2 == tBool then
+				if attr_type == tBool then
 					xs.push(false)
 				else
 					xs.push(null)

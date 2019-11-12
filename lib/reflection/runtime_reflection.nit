@@ -60,12 +60,12 @@ end
 
 interface Method
 	super Property
-	fun parameter_types: Sequence[Type] is abstract
+	fun parameter_types(recv_type): Sequence[Type] is abstract
 end
 
 interface Attribute
 	super Property
-	fun static_type: Type is abstract
+	fun dyn_type(recv_type: Type): Type is abstract
 end
 
 # A type parameter in a generic type
