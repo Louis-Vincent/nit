@@ -1,5 +1,19 @@
-import naive_interpreter
+import universal_instance
+import native_array_tools
 import model::model_collect
+
+redef class AMethPropdef
+	redef fun intern_call(v, mpropdef, args)
+	do
+		var cname = mpropdef.mclassdef.mclass.name
+		var pname = mpropdef.mproperty.name
+		if cname == "Sys" and pname == "rti_repo" then
+			return v.runtime_rti_repo
+		else
+			return super
+		end
+	end
+end
 
 redef class Model
 
@@ -78,6 +92,7 @@ redef class NaiveInterpreter
 
 	# Runtime meta types
 	var type_type: MClassType is noinit
+	var class_iterator_type: MClassType is noinit
 	var type_iterator_type: MClassType is noinit
 	var prop_iterator_type: MClassType is noinit
 
@@ -94,9 +109,12 @@ redef class NaiveInterpreter
 
 			self.type_type = model.get_mclass_in_mmodule("TypeInfo", mmodule_name).mclass_type
 			var prop_type = model.get_mclass_in_mmodule("PropertyInfo", mmodule_name).mclass_type
+			var class_type = model.get_mclass_in_mmodule("ClassInfo", mmodule_name).mclass_type
 
-			self.type_iterator_type = model.get_mclass_in_mmodule("RuntimeInfoIterator", mmodule_name).get_mtype([self.type_type])
-			self.prop_iterator_type = model.get_mclass_in_mmodule("RuntimeInfoIterator", mmodule_name).get_mtype([prop_type])
+			var rt_iterator_class = model.get_mclass_in_mmodule("RuntimeInfoIterator", mmodule_name)
+			self.type_iterator_type = rt_iterator_class.get_mtype([self.type_type])
+			self.prop_iterator_type = rt_iterator_class.get_mtype([prop_type])
+			self.class_iterator_type = rt_iterator_class.get_mtype([class_type])
 		end
 	end
 
@@ -115,10 +133,15 @@ redef class NaiveInterpreter
 		assert array_instance isa MutableInstance
 		var mtype = array_instance.mtype
 		var native_instance = self.send(self.force_get_primitive_method("items", mtype), [array_instance])
+		if native_instance == null then return null
+
 		if not native_instance isa PrimitiveInstance[Array[Instance]] then
 			return null
 		else
-			return native_instance.val#.as(Array[Instance])
+			#debug "native array: {native_instance}, inner: {native_instance.inner}"
+			var i = self.send(self.force_get_primitive_method("length", mtype), [array_instance]).to_i
+			var j = self.send(self.force_get_primitive_method("length", native_instance.mtype), [native_instance]).to_i
+			return native_instance.val
 		end
 	end
 
@@ -134,19 +157,8 @@ end
 
 class RuntimeInternalsRepo
 	protected var model: Model
-	protected var cached_type = new HashMap[MClassType, TypeInfo]
+	protected var cached_type = new HashMap[MType, TypeInfo]
 	protected var cached_class = new HashMap[MClass, ClassInfo]
-
-	#fun get_type_by_name(name: String): nullable TypeInfo
-	#do
-	#	if model.has_mclass(name) then
-	#		assert is_unique_class: model.is_unique(name)
-	#		var mclass_type = model.get_mclass(name).mclass_type
-	#		return from_mclass_type(mclass_type)
-	#	else
-	#		return null
-	#	end
-	#end
 
 	fun get_class_by_name(classname: String): nullable ClassInfo
 	do
@@ -163,10 +175,10 @@ class RuntimeInternalsRepo
 	# `MClassType`.
 	fun from_mtype(mtype: MType): TypeInfo
 	is
-		expect(mtype.undecorate isa MClassType)
+		expect(not mtype.undecorate isa MProxyType)
 	do
-		var mclass_type = mtype.undecorate.as(MClassType)
-		var res = self.from_mclass_type(mclass_type)
+		var mtype2 = mtype.undecorate
+		var res = self.from_cache(mtype2)
 		if mtype isa MNullableType then
 			return as_nullable(res)
 		else
@@ -196,10 +208,9 @@ class RuntimeInternalsRepo
 		var res = new ClassInfo(class_type, mclass)
 		cached_class[mclass] = res
 		return res
-
 	end
 
-	fun from_mclass_type(mclass_type: MClassType): TypeInfo
+	protected fun from_cache(mclass_type: MType): TypeInfo
 	do
 		if cached_type.has_key(mclass_type) then
 			return cached_type[mclass_type]
@@ -250,46 +261,11 @@ class PropertyFactory
 	end
 end
 
-redef class AMethPropdef
-	redef fun intern_call(v, mpropdef, args)
-	do
-		var cname = mpropdef.mclassdef.mclass.name
-		var pname = mpropdef.mproperty.name
-		if cname == "Sys" and pname == "rti_repo" then
-			return v.runtime_rti_repo
-		else if args.length > 0 and args[0] isa Universal then
-			var recv = args[0].as(Universal)
-			var res = recv.resolve_intern_call(v, pname, args)
-			if res.err != null and res.err isa UnsupportedMethod then
-				return super
-			else
-				return res.ok
-			end
-		else
-			return super
-		end
-	end
-end
-
-abstract class Universal
-	super MutableInstance
-	fun resolve_intern_call(v: NaiveInterpreter, pname: String, args: SequenceRead[Instance]): InternCallResult
-	do
-		var res = new InternCallResult(null, new UnsupportedMethod(pname))
-		dispatch(v, pname, args, res)
-		return res
-	end
-
-	protected fun dispatch(v: NaiveInterpreter, pname: String, args: SequenceRead[Instance], out: InternCallResult)
-	is abstract
-end
-
 # Exposed `RuntimeInternalsRepo` for the interpreter runtime.
 class RuntimeInternalsRepoImpl
 	super Universal
 	var rti_repo: RuntimeInternalsRepo
 
-	protected var cached_type = new HashMap[String, TypeInfo]
 	redef fun dispatch(v, pname, args, out)
 	do
 		if pname == "get_classinfo" then
@@ -410,17 +386,23 @@ class ClassInfo
 			out.ok = self.type_param_bounds(v)
 		else if pname == "unbound_type" then
 			out.ok = self.unbound_type(v)
+		else if pname == "ancestors" then
+			out.ok = self.ancestors(v)
 		else if pname == "to_s" then
 			out.ok = self.to_string(v)
 		else if pname == "new_type" then
 			out.ok = self.new_type(v, args[1])
+		else if pname == "type_parameters" then
+			out.ok = self.type_parameters(v)
 		end
 	end
 
 	protected fun new_type(v: NaiveInterpreter, args: Instance): TypeInfo
 	do
-		var temp = v.runtime_array_to_native(args) or else new Array[Instance]
+		var temp = v.native_array_view(args)
 		var types = new Array[MType]
+		#v.debug "class: {self.reflectee} , arity: {self.reflectee.arity}"
+		assert temp.length == self.reflectee.arity
 		for ty in temp do
 			assert ty isa TypeInfo
 			types.push(ty.reflectee)
@@ -432,7 +414,7 @@ class ClassInfo
 	protected fun unbound_type(v: NaiveInterpreter): TypeInfo
 	do
 		var mtype = self.reflectee.mclass_type
-		return v.rti_repo.from_mclass_type(mtype)
+		return v.rti_repo.from_mtype(mtype)
 	end
 
 	protected fun to_string(v: NaiveInterpreter): Instance
@@ -508,6 +490,33 @@ class ClassInfo
 		end
 	end
 
+	protected fun ancestors(v: NaiveInterpreter): InstanceIterator[ClassInfo]
+	do
+		var mmodule = v.mainmodule
+		var mclass = self.reflectee
+		var ancestors = mclass.collect_ancestors(mmodule, null).to_a
+		mmodule.linearize_mclasses(ancestors)
+		var ancestors2 = new Array[ClassInfo]
+		for a in ancestors do
+			var classinfo = v.rti_repo.from_mclass(a)
+			ancestors2.push(classinfo)
+		end
+		return new InstanceIterator[ClassInfo](v.class_iterator_type, ancestors2.reverse_iterator)
+
+	end
+
+	protected fun type_parameters(v: NaiveInterpreter): Instance
+	is
+		expect(self.reflectee.mclass_type isa MGenericType)
+	do
+		var mparameters = self.reflectee.mparameters
+		var res = new Array[TypeInfo]
+		for mparam in mparameters do
+			var ty = v.rti_repo.from_mtype(mparam)
+			res.push(ty)
+		end
+		return v.array_instance(res, v.type_type)
+	end
 end
 
 class TypeInfo
@@ -536,8 +545,6 @@ class TypeInfo
 			out.ok = self.is_derived(v)
 		else if pname == "is_type_param" then
 			out.ok = self.is_type_param(v)
-		else if pname == "supertypes" then
-			out.ok = self.supertypes(v)
 		else if pname == "resolve" then
 			out.ok = self.resolve(v, args)
 		else if pname == "as_not_null" then
@@ -558,7 +565,7 @@ class TypeInfo
 		expect(not self.reflectee.need_anchor,
 			self.reflectee.undecorate isa MClassType)
 	do
-		var init_args = v.runtime_array_to_native(arg) or else new Array[Instance]
+		var init_args = v.native_array_view(arg)
 		var mmodule = v.mainmodule
 		var mtype = self.reflectee.undecorate.as(MClassType)
 		var classinfo = v.rti_repo.from_mclass(mtype.mclass)
@@ -580,7 +587,7 @@ class TypeInfo
 	do
 		# NOTE: no need to cache derived type inside a table since
 		# `MClass::get_mtype` already does it for us.
-		var args2 = v.runtime_array_to_native(args[1]) or else new Array[Instance]
+		var args2 = v.native_array_view(args[1])
 
 		var reflectee = self.reflectee.as(MGenericType)
 		# Maps args2 to an array of `MClassType`
@@ -682,27 +689,6 @@ class TypeInfo
 		var res = self.reflectee isa MFormalType
 		return v.bool_instance(res)
 	end
-
-	protected fun supertypes(v: NaiveInterpreter): InstanceIterator[TypeInfo]
-	is
-		expect(self.reflectee isa MClassType)
-	do
-		var mmodule = v.mainmodule
-		var mclass_type = self.reflectee.as(MClassType)
-		var ancestors = mclass_type.mclass.collect_ancestors(mmodule, null).to_a
-		mmodule.linearize_mclasses(ancestors)
-		var ancestors2 = new Array[TypeInfo]
-		for a in ancestors do
-			var mtype = a.mclass_type
-			# Check if we can anchor
-			if mtype.need_anchor and not mclass_type.need_anchor then
-				mtype = mtype.anchor_to(mmodule, mclass_type)
-			end
-			var typeinfo = v.rti_repo.from_mclass_type(mtype)
-			ancestors2.push(typeinfo)
-		end
-		return new InstanceIterator[TypeInfo](v.type_iterator_type, ancestors2.reverse_iterator)
-	end
 end
 
 abstract class PropertyInfo
@@ -793,8 +779,10 @@ class MethodInfo
 		# Polymorphic send, since `MethodInfo` instance can be called
 		# between mixed implementation.
 		var runtime_array = args[1]
-		var args2 = v.runtime_array_to_native(runtime_array) or else new Array[Instance]
-		return v.send(self.mpropdef.mproperty, args2)
+		var args2 = v.native_array_view(runtime_array)
+		var args3 = new Array[Instance]
+		args2.copy_to(0, args2.length, args3, 0)
+		return v.send(self.mpropdef.mproperty, args3)
 	end
 end
 
@@ -826,7 +814,12 @@ class AttributeInfo
 	is
 		expect(recv isa TypeInfo)
 	do
-		var anchor = recv.as(TypeInfo).reflectee.undecorate.as(MClassType)
+		var typeinfo = recv.as(TypeInfo)
+		var anchor = typeinfo.reflectee.undecorate.as(MClassType)
+		assert not anchor.need_anchor
+		var mclass_intro = self.mpropdef.mclassdef.mclass.intro
+		var upper_bound = mclass_intro.bound_mtype
+		assert anchor.is_subtype(v.mainmodule, null, upper_bound)
 		var static_type = self.get_static_type(v).reflectee
 		var anchored_mtype = static_type.anchor_to(v.mainmodule, anchor)
 		return v.rti_repo.from_mtype(anchored_mtype)
@@ -840,11 +833,7 @@ class AttributeInfo
 		var intro = self.mpropdef.mproperty.intro
 		var mtype = intro.static_mtype
 		assert mtype != null
-		if mtype isa MParameterType then
-			static_type = new TypeInfo(v.type_type, mtype)
-		else
-			static_type = v.rti_repo.from_mtype(mtype)
-		end
+		static_type = v.rti_repo.from_mtype(mtype)
 		return static_type
 	end
 end
@@ -860,6 +849,7 @@ class InstanceIterator[INSTANCE: Instance]
 
 	redef fun dispatch(v, pname, args, out)
 	do
+		#v.debug "ENTERING InstanceIterator::dispatch for {pname}"
 		if pname == "next" then
 			self.next
 			out.ok = null
@@ -883,41 +873,6 @@ class InstanceIterator[INSTANCE: Instance]
 	fun is_ok(v: NaiveInterpreter): Instance
 	do
 		return v.bool_instance(inner.is_ok)
-	end
-end
-
-class Result[TYPE, ERROR]
-	var ok: nullable TYPE
-	var err: nullable ERROR
-end
-
-abstract class InternCallError
-	var message: String = ""
-end
-
-class UnsupportedMethod
-	super InternCallError
-	var methodname: String
-
-	redef fun to_s
-	do
-		return "UnsupportedMethodError: unkown method named `{methodname}`"
-	end
-end
-
-class InternCallResult
-	super Result[Instance, InternCallError]
-
-	redef fun ok=(val)
-	do
-		_ok = val
-		_err = null
-	end
-
-	redef fun err=(val)
-	do
-		_err = val
-		_ok = null
 	end
 end
 
