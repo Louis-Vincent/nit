@@ -60,8 +60,8 @@ class H
 end
 
 class I
-	super G
 	super H
+	super G
 
 	redef fun p1
 	do
@@ -70,27 +70,53 @@ class I
 	end
 end
 
+class K[E]
+	var p1: E
+end
+
+class L
+	var x: Int
+	var y: Int
+	var z: Int is noinit
+	init
+	do
+		z = x + y
+	end
+end
+
+abstract class J
+	var x: Int
+	var y: Int
+
+	new(x: Int, y: Int)
+	do
+		if x + y > 10 then
+			return new J1(x,y)
+		else
+			return new J2(x,y)
+		end
+	end
+end
+
+class J1
+	super J
+	var z: Int is noinit
+	init
+	do
+		z = x + y
+	end
+end
+
+class J2
+	super J
+end
+
 fun get_prop(name: String, klass: ClassInfo): PropertyInfo
 do
 	for p in klass.properties do
 		if p.name == name then return p
 	end
 	abort
-end
-
-fun test_A_supertypes do
-	#var a = rti_repo.get_classinfo("A").as(not null).unbound_type
-	#var object = rti_repo.get_classinfo("Object").as(not null).unbound_type
-	#var supertypes = a.supertypes.to_a
-	#assert supertypes == [object]
-end
-
-fun test_D_supertypes do
-	#var d = rti_repo.get_classinfo("D").as(not null).unbound_type
-	#var a = rti_repo.get_classinfo("A").as(not null).unbound_type
-	#var object = rti_repo.get_classinfo("Object").as(not null).unbound_type
-	#var supertypes = d.supertypes.to_a
-	#assert supertypes == [a, object]
 end
 
 var z1: Z1
@@ -197,3 +223,50 @@ var tF = cF.unbound_type
 var tG = cG.unbound_type
 var tH = cH.unbound_type
 var tI = cI.unbound_type
+
+p1 = get_prop("p1", cI)
+p11 = get_prop("p1", cH)
+p111 = get_prop("p1", cG)
+p1111 = get_prop("p1", cF)
+print "{[p1, p11, p111, p1111]}"
+
+for sup in p1.get_linearization do
+	print "{sup.name}: {sup}"
+end
+
+var cK = rti_repo.get_classinfo("K").as(not null)
+var tL = rti_repo.get_classinfo("L").as(not null).unbound_type
+var tJ = rti_repo.get_classinfo("J").as(not null).unbound_type
+var tJ1 = rti_repo.get_classinfo("J1").as(not null).unbound_type
+var tK_Int = cK.new_type([tInt])
+print tK_Int
+var attr_p1 = get_prop("_p1", cK)
+assert attr_p1 isa AttributeInfo
+
+var x = rti_repo.get_classinfo("Object").as(not null).unbound_type
+var y = x.as_nullable
+var z = cK.type_param_bounds[0]
+assert y == z
+var temp = attr_p1.introducer.bound_type
+print attr_p1.dynamic_type(tK_Int)
+
+var b1 = tL.new_instance([1,10]).as(L)
+assert b1.z == 11
+
+var c1 = tJ.new_instance([1,10])
+var c2 = tJ.new_instance([1,1])
+var c3 = tJ1.new_instance([10, 100])
+assert c1 isa J1
+assert c1.z == 11
+assert c2 isa J2
+assert c3 isa J1
+assert c3.z == 110
+
+for tp in cK.type_parameters do
+	assert tp.is_type_param
+	assert not tp.is_generic
+	assert not tp.is_derived
+end
+
+var ancestors = cI.ancestors.to_a
+print ancestors

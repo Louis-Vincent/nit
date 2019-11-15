@@ -24,7 +24,8 @@ interface RuntimeInfo
 end
 
 universal ClassInfo
-	fun superclasses: Iterator[TypeInfo] is intern
+	super RuntimeInfo
+	fun ancestors: Iterator[ClassInfo] is intern
 	fun properties: Iterator[PropertyInfo] is intern
 	fun type_param_bounds: SequenceRead[TypeInfo] is intern
 	fun new_type(args: Array[TypeInfo]): TypeInfo is intern
@@ -33,6 +34,7 @@ universal ClassInfo
 		var bounds = new Array[TypeInfo]
 		# Make a copy
 		for ty in type_param_bounds do
+			assert not ty.is_generic and not ty.is_type_param
 			bounds.push(ty)
 		end
 		return self.new_type(bounds)
@@ -41,6 +43,7 @@ universal ClassInfo
 	fun is_interface: Bool is intern
 	fun is_abstract: Bool is intern
 	fun is_universal: Bool is intern
+	fun type_parameters: SequenceRead[TypeInfo] is intern
 	fun is_stdclass: Bool
 	do
 		return not is_abstract and not is_universal and not is_interface
@@ -107,7 +110,7 @@ universal AttributeInfo
 	# return type parameter (aka open generic type).
 	fun static_type: TypeInfo is intern
 
-	fun value(recv: Object): nullable Object is intern
+	fun value(object: Object): nullable Object is intern
 end
 
 universal MethodInfo
