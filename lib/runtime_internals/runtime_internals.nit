@@ -61,7 +61,7 @@ universal TypeInfo
 	fun as_nullable: TypeInfo is intern
 	fun type_arguments: SequenceRead[TypeInfo] is intern
 	fun iza(other: TypeInfo): Bool is intern
-	fun new_instance(args: Array[Object]): Object is intern
+	fun new_instance(args: Array[nullable Object]): Object is intern
 	redef fun to_s is intern
 end
 
@@ -91,7 +91,7 @@ interface PropertyInfo
 	fun name: String is intern
 
 	# Returns an iterator that yields the next super property in the
-	# linearization order.
+	# linearizatdyn_typeion order.
 	fun get_linearization: Iterator[SELF] is intern
 end
 
