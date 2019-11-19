@@ -35,8 +35,11 @@ interface Environment
 
 	type INSPECTABLE: Object
 
+	fun class_exist(classname: String): Bool is abstract
+
 	# Returns the type named `typename`, otherwise `null`.
-	fun get_class(classname: String): nullable Class is abstract
+	fun get_class(classname: String): Class
+	is abstract, expect(class_exist(classname))
 
 	fun typeof(object: INSPECTABLE): Type is abstract
 end
@@ -58,15 +61,28 @@ interface Property
 	fun is_protected: Bool is abstract
 end
 
+# Represents contextualized properties, ie a property whose receiver type had
+# been resolved.
+interface Typed
+	fun static_type: StaticType is abstract
+	fun dyn_type: Type is abstract
+end
+
+# A vritual type definition inside a class
+interface VirtualType
+	super Property
+	super Typed
+end
+
 interface Method
 	super Property
-	fun parameter_types(recv_type: Type): Sequence[Type] is abstract
-	fun return_type(recv_type: Type): nullable Type is abstract
+	super Typed
+	redef fun dyn_type: MethodType is abstract
 end
 
 interface Attribute
 	super Property
-	fun dyn_type(recv_type: Type): Type is abstract
+	super Typed
 end
 
 interface FormalTypeConstraint
@@ -79,17 +95,12 @@ class NullConstraint
 end
 
 # A type parameter in a generic type
-interface TypeParameter
+abstract class TypeParameter
 	super StaticType
 	# where the type parameter belongs
-	fun klass: Class is abstract
-	fun constraint: FormalTypeConstraint is abstract
-end
-
-# A vritual type definition inside a class
-interface VirtualType
-	super Property
-	fun bound: StaticType is abstract
+	var klass: Class is protected writable
+	var constraint: FormalTypeConstraint is protected writable
+	var rank: Int is protected writable
 end
 
 interface StaticType
@@ -114,17 +125,16 @@ interface Class
 
 	fun [](types: Type...): DerivedType
 	do
-		return resolve_with(types)
+		var res = derive_from(types)
+		assert res isa DerivedType
+		return res
 	end
 
 	# Returns all ancestors including `self` in linearized order.
 	fun ancestors: SequenceRead[Class] is abstract
 
-	# Returns a set containing all the property (inherited, introduced, refined)
-	# of this type.
-	fun properties: Set[Property] is abstract
-
-	fun resolve_with(types: SequenceRead[Type]): DerivedType
+	# Derive a new type from types arguments.
+	fun derive_from(types: SequenceRead[Type]): Type
 	is abstract, expect(are_valid_type_values(types))
 
 	fun are_valid_type_values(types: SequenceRead[Type]): Bool
@@ -138,7 +148,17 @@ interface Class
 		end
 		return true
 	end
+end
 
+# Denotes the absence of type (absurd type)
+class NoneType
+	super Type
+	redef fun properties do return new ArraySet[Property]
+	redef fun can_new_instance(args) do return false
+	redef fun iza(other) do return other isa NoneType
+	redef fun as_nullable do return self
+	redef fun is_nullable do return false
+	redef fun as_not_null do return self
 end
 
 # Base interface for all dynamic type living at runtime. A dynamic type is closed,
@@ -148,17 +168,49 @@ interface Type
 
 	fun klass: Class is abstract
 
+	fun properties: Set[Property] is abstract
+
 	# Returns a set of property introduced by this type and all its
 	# refinements
-	fun declared_properties: Set[Property] is abstract
+	fun declared_properties: Set[Property]
+	do
+		var res = new HashSet[Property]
+		for prop in self.properties do
+			if prop.introducer == klass then
+				res.add(prop)
+			end
+		end
+		return res
+	end
 
-	fun declared_attributes: SequenceRead[Attribute] is abstract
+	fun declared_attributes: SequenceRead[Attribute]
+	do
+		var res = new Array[Attribute]
+		for dprop in self.declared_properties do
+			if dprop isa Attribute then
+				res.push(dprop)
+			end
+		end
+		return res
+	end
 
-	fun declared_methods: SequenceRead[Method] is abstract
+	fun declared_methods: SequenceRead[Method]
+	do
+		var res = new Array[Method]
+		for dprop in self.declared_properties do
+			if dprop isa Method then
+				res.push(dprop)
+			end
+		end
+		return res
+	end
 
 	# Returns a `Property` named `property_name` if it exists, otherwise
 	# `null`.
-	fun property_or_null(property_name: String): nullable Property is abstract
+	fun property_or_null(property_name: String): nullable Property
+	do
+		return null
+	end
 
 	# Returns `true` if this type has a property named `property_name`,
 	# otherwise `false`.
@@ -234,4 +286,10 @@ end
 interface DerivedType
 	super Type
 	fun type_arguments: SequenceRead[Type] is abstract
+end
+
+interface MethodType
+	super Type
+	fun return_type: Type is abstract
+	fun parameter_types: SequenceRead[Type] is abstract
 end
