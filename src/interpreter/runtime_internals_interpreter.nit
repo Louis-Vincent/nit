@@ -506,8 +506,6 @@ class ClassInfo
 	end
 
 	protected fun type_parameters(v: NaiveInterpreter): Instance
-	is
-		expect(self.reflectee.mclass_type isa MGenericType)
 	do
 		var mparameters = self.reflectee.mparameters
 		var res = new Array[TypeInfo]
@@ -555,9 +553,21 @@ class TypeInfo
 			out.ok = self.type_arguments(v)
 		else if pname == "iza" then
 			out.ok = self.iza(v, args[1].as(TypeInfo))
+		else if pname == "describee" then
+			out.ok = self.describee(v)
 		else if pname == "new_instance" then
 			out.ok = self.new_instance(v, args[1])
 		end
+	end
+
+	protected fun describee(v: NaiveInterpreter): ClassInfo
+	is
+		expect(reflectee.undecorate isa MClassType)
+	do
+		var mclass_type = reflectee.undecorate.as(MClassType)
+		var mclass = mclass_type.mclass
+		var classinfo = v.rti_repo.from_mclass(mclass)
+		return classinfo
 	end
 
 	protected fun new_instance(v: NaiveInterpreter, arg: Instance): Instance
