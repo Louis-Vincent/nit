@@ -72,14 +72,17 @@ redef class MType
 		end
 		return res
 	end
+
+	# The class where the mtype belongs/links to.
+	fun mclass_link : MClass is abstract
 end
 
-redef class MParameterType
-	redef fun close
-	do
-		var bound = mclass.intro.bound_mtype.arguments[self.rank]
-		return bound
-	end
+redef class MClassType
+	redef fun mclass_link do return self.mclass
+end
+
+redef class MProxyType
+	redef fun mclass_link do return mtype.mclass_link
 end
 
 redef class NaiveInterpreter
@@ -210,14 +213,14 @@ class RuntimeInternalsRepo
 		return res
 	end
 
-	protected fun from_cache(mclass_type: MType): TypeInfo
+	protected fun from_cache(mtype: MType): TypeInfo
 	do
-		if cached_type.has_key(mclass_type) then
-			return cached_type[mclass_type]
+		if cached_type.has_key(mtype) then
+			return cached_type[mtype]
 		end
 		var type_type = model.get_mclass("TypeInfo").mclass_type
-		var res = new TypeInfo(type_type, mclass_type)
-		cached_type[mclass_type] = res
+		var res = new TypeInfo(type_type, mtype)
+		cached_type[mtype] = res
 		return res
 	end
 end
@@ -382,8 +385,6 @@ class ClassInfo
 			out.ok = v.int_instance(0)
 		else if pname == "properties" then
 			out.ok = self.properties(v)
-		else if pname == "type_param_bounds" then
-			out.ok = self.type_param_bounds(v)
 		else if pname == "unbound_type" then
 			out.ok = self.unbound_type(v)
 		else if pname == "ancestors" then
@@ -447,20 +448,6 @@ class ClassInfo
 		return new InstanceIterator[PropertyInfo](v.prop_iterator_type, cached_properties.iterator)
 	end
 
-	protected fun type_param_bounds(v: NaiveInterpreter): Instance
-	do
-		var bound_mtype = self.reflectee.intro.bound_mtype
-		var type_args = bound_mtype.arguments
-		var types = new Array[TypeInfo]
-		var rti_repo = v.rti_repo
-		for t_arg in type_args do
-			assert t_arg isa MNullableType or t_arg isa MClassType
-			var ty = rti_repo.from_mtype(t_arg)
-			types.push(ty)
-		end
-		return v.array_instance(types, v.type_type)
-	end
-
 	private fun get_constructor(v: NaiveInterpreter): Constructor
 	do
 		if cached_properties == null then
@@ -517,6 +504,40 @@ class ClassInfo
 	end
 end
 
+redef class MFormalType
+	fun static_bound(mmodule: MModule): MType is abstract
+end
+
+redef class MParameterType
+	redef fun close
+	do
+		var bound = mclass.intro.bound_mtype.arguments[self.rank]
+		return bound
+	end
+	redef fun static_bound(mmodule)
+	do
+		var mclass_type = mclass.collect_linearization(mmodule).last.as(MClassDef)
+		var bound_mtype = mclass_type.bound_mtype
+		return bound_mtype.arguments[rank]
+	end
+	redef fun mclass_link do return self.mclass
+end
+
+redef class MVirtualType
+	redef fun static_bound(mmodule)
+	do
+		var propdefs = self.mproperty.collect_linearization(mmodule)
+		var most_specific = propdefs.last.as(MVirtualTypeDef)
+		assert most_specific.bound != null
+		return most_specific.bound.as(not null)
+	end
+
+	redef fun mclass_link
+	do
+		return self.mproperty.intro_mclassdef.mclass
+	end
+end
+
 class TypeInfo
 	super Universal
 	var reflectee: MType
@@ -541,8 +562,8 @@ class TypeInfo
 			out.ok = self.is_universal(v)
 		else if pname == "is_derived" then
 			out.ok = self.is_derived(v)
-		else if pname == "is_type_param" then
-			out.ok = self.is_type_param(v)
+		else if pname == "is_formal_type" then
+			out.ok = self.is_formal_type(v)
 		else if pname == "resolve" then
 			out.ok = self.resolve(v, args)
 		else if pname == "as_not_null" then
@@ -553,21 +574,29 @@ class TypeInfo
 			out.ok = self.type_arguments(v)
 		else if pname == "iza" then
 			out.ok = self.iza(v, args[1].as(TypeInfo))
-		else if pname == "describee" then
-			out.ok = self.describee(v)
+		else if pname == "klass" then
+			out.ok = self.klass(v)
 		else if pname == "new_instance" then
 			out.ok = self.new_instance(v, args[1])
+		else if pname == "bound" then
+			out.ok = self.bound(v)
 		end
 	end
 
-	protected fun describee(v: NaiveInterpreter): ClassInfo
+	protected fun bound(v: NaiveInterpreter): TypeInfo
 	is
-		expect(reflectee.undecorate isa MClassType)
+		expect(self.reflectee isa MFormalType)
 	do
-		var mclass_type = reflectee.undecorate.as(MClassType)
-		var mclass = mclass_type.mclass
-		var classinfo = v.rti_repo.from_mclass(mclass)
-		return classinfo
+		var reflectee = self.reflectee.as(MFormalType)
+		var mmodule = v.mainmodule
+		var bound = reflectee.static_bound(mmodule)
+		return v.rti_repo.from_mtype(bound)
+	end
+
+	protected fun klass(v: NaiveInterpreter): ClassInfo
+	do
+		var mclass = self.reflectee.mclass_link
+		return v.rti_repo.from_mclass(mclass)
 	end
 
 	protected fun new_instance(v: NaiveInterpreter, arg: Instance): Instance
@@ -694,7 +723,7 @@ class TypeInfo
 		return v.bool_instance(res)
 	end
 
-	protected fun is_type_param(v: NaiveInterpreter): Instance
+	protected fun is_formal_type(v: NaiveInterpreter): Instance
 	do
 		var res = self.reflectee isa MFormalType
 		return v.bool_instance(res)
@@ -714,8 +743,8 @@ abstract class PropertyInfo
 			out.ok = self.name(v)
 		else if pname == "get_linearization" then
 			out.ok = self.get_linearization(v)
-		else if pname == "introducer" then
-			out.ok = self.introducer(v)
+		else if pname == "klass" then
+			out.ok = self.klass(v)
 		end
 	end
 
@@ -742,7 +771,7 @@ abstract class PropertyInfo
 		return new InstanceIterator[PropertyInfo](v.prop_iterator_type, cached_linearization.iterator)
 	end
 
-	protected fun introducer(v: NaiveInterpreter): ClassInfo
+	protected fun klass(v: NaiveInterpreter): ClassInfo
 	do
 		var mclass = self.mpropdef.mclassdef.mclass
 		return v.rti_repo.from_mclass(mclass)

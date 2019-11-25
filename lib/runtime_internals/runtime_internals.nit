@@ -27,15 +27,15 @@ universal ClassInfo
 	super RuntimeInfo
 	fun ancestors: Iterator[ClassInfo] is intern
 	fun properties: Iterator[PropertyInfo] is intern
-	fun type_param_bounds: SequenceRead[TypeInfo] is intern
 	fun new_type(args: Array[TypeInfo]): TypeInfo is intern
 	fun bound_type: TypeInfo
 	do
 		var bounds = new Array[TypeInfo]
 		# Make a copy
-		for ty in type_param_bounds do
-			assert not ty.is_generic and not ty.is_type_param
-			bounds.push(ty)
+		for tparam in type_parameters do
+			var bound = tparam.bound
+			assert not bound.is_formal_type
+			bounds.push(bound)
 		end
 		return self.new_type(bounds)
 	end
@@ -53,12 +53,17 @@ end
 
 universal TypeInfo
 	super RuntimeInfo
-	fun describee: ClassInfo is intern
-	fun is_generic: Bool is intern
-	fun is_derived: Bool is intern
-	fun is_type_param: Bool is intern
+	# A `TypeInfo` is always linked to a class.
+	fun klass: ClassInfo is intern
+
+	# Represents a type variable
+	fun is_formal_type: Bool is intern
 	fun as_not_null: TypeInfo is intern
 	fun as_nullable: TypeInfo is intern
+
+	# The bound (might be F-bounded) of a formal type
+	fun bound: TypeInfo is intern, expect(is_formal_type)
+
 	fun type_arguments: SequenceRead[TypeInfo] is intern
 	fun iza(other: TypeInfo): Bool is intern
 	fun new_instance(args: Array[nullable Object]): Object is intern
@@ -67,7 +72,8 @@ end
 
 interface PropertyInfo
 	super RuntimeInfo
-	fun introducer: ClassInfo is intern
+	# The class where the property has been introduced or redefined
+	fun klass: ClassInfo is intern
 
 	# Return true if `self` and `other` come from the same introduction.
 	fun equiv(other: SELF): Bool is intern do
@@ -103,7 +109,7 @@ universal AttributeInfo
 	# the attribute is typed by a type parameter. This function ensures the
 	# return `TypeInfo` is closed.
 	fun dynamic_type(recv_type: TypeInfo): TypeInfo
-	is intern, expect(recv_type.iza(introducer.bound_type))
+	is intern, expect(recv_type.iza(klass.bound_type))
 
 	# Returns the static type of the current attribute.
 	# This function is less safer than `type_info_wrecv` since it may
