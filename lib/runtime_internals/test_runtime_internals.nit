@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-module test_runtime_internals1
+module test_runtime_internals
 
 import runtime_internals
 import test_runtime_internals_redefs
@@ -172,9 +172,9 @@ p11 = get_prop("p1", cZ2)
 p111 = get_prop("p1", cZ3)
 p2 = get_prop("p2", cZ3)
 
-assert p1.introducer == cZ1
-assert p11.introducer == cZ2
-assert p111.introducer == cZ3
+assert p1.klass == cZ1
+assert p11.klass == cZ2
+assert p111.klass == cZ3
 
 var p1111 = get_prop("p1", cZ5)
 assert p1111 == p111
@@ -208,7 +208,6 @@ assert p1 != p111
 
 var tE_Int_String = cE.new_type([tInt, tString])
 assert tE_Int_String.to_s == "E[Int, String]"
-assert tE_Int_String.is_derived
 assert tE_Int_String.type_arguments.to_a == [tInt, tString]
 
 var d1 = new D(10, 100)
@@ -245,9 +244,9 @@ assert attr_p1 isa AttributeInfo
 
 var x = rti_repo.get_classinfo("Object").as(not null).unbound_type
 var y = x.as_nullable
-var z = cK.type_param_bounds[0]
+var z = cK.type_parameters[0].bound
 assert y == z
-var temp = attr_p1.introducer.bound_type
+var temp = attr_p1.klass.bound_type
 print attr_p1.dynamic_type(tK_Int)
 
 var b1 = tL.new_instance([1,10]).as(L)
@@ -263,9 +262,8 @@ assert c3 isa J1
 assert c3.z == 110
 
 for tp in cK.type_parameters do
-	assert tp.is_type_param
-	assert not tp.is_generic
-	assert not tp.is_derived
+	assert tp.is_formal_type
+	print tp
 end
 
 var ancestors = cI.ancestors.to_a
