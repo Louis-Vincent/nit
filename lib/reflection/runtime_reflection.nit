@@ -170,6 +170,28 @@ interface Type
 
 	fun properties: Set[Property] is abstract
 
+	fun all_attributes: SequenceRead[Attribute]
+	do
+		var res = new Array[Attribute]
+		for dprop in self.properties do
+			if dprop isa Attribute then
+				res.push(dprop)
+			end
+		end
+		return res
+	end
+
+	fun all_methods: SequenceRead[Method]
+	do
+		var res = new Array[Method]
+		for dprop in self.properties do
+			if dprop isa Method then
+				res.push(dprop)
+			end
+		end
+		return res
+	end
+
 	# Returns a set of property introduced by this type and all its
 	# refinements
 	fun declared_properties: Set[Property]
@@ -186,9 +208,9 @@ interface Type
 	fun declared_attributes: SequenceRead[Attribute]
 	do
 		var res = new Array[Attribute]
-		for dprop in self.declared_properties do
-			if dprop isa Attribute then
-				res.push(dprop)
+		for prop in self.all_attributes do
+			if prop.introducer == klass then
+				res.add(prop)
 			end
 		end
 		return res
@@ -197,9 +219,9 @@ interface Type
 	fun declared_methods: SequenceRead[Method]
 	do
 		var res = new Array[Method]
-		for dprop in self.declared_properties do
-			if dprop isa Method then
-				res.push(dprop)
+		for prop in self.all_methods do
+			if prop.introducer == klass then
+				res.add(prop)
 			end
 		end
 		return res

@@ -39,7 +39,7 @@ class MirrorRepository
 
 	fun from_typeinfo(typeinfo: TypeInfo): StdType
 	is
-		expect(not typeinfo.is_generic and not typeinfo.is_type_param)
+		#expect(not typeinfo.is_generic and not typeinfo.is_type_param)
 	do
 		var klass = self.from_classinfo(typeinfo.describee)
 		var res: StdType
@@ -85,7 +85,7 @@ class StdClass
 
 	redef fun arity
 	is
-		ensure(result >= 0)
+	#ensure(result >= 0)
 	do
 		return self.classinfo.type_param_bounds.length
 	end
@@ -279,6 +279,11 @@ abstract class StdProperty
 	redef fun name do return self.propinfo.name
 end
 
+redef class Attribute
+	fun get_for(object: Object): nullable Object is abstract
+	fun set_for(object: Object, val: nullable Object) is abstract
+end
+
 class StdAttribute
 	super StdProperty
 	super Attribute
@@ -297,6 +302,11 @@ class StdAttribute
 	do
 		var res = super
 		return res.substring_from(1)
+	end
+
+	redef fun get_for(object)
+	do
+		return self.propinfo.value(object)
 	end
 end
 
