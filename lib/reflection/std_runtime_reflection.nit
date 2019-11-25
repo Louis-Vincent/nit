@@ -11,7 +11,7 @@ redef class Sys
 		return self.rti_repo.get_classinfo(classname) != null
 	end
 
-	fun get_type(typename: String): Type
+	fun get_type(typename: String): TypeMirror
 	do
 		var klass = get_class(typename)
 		return klass.bound_type
@@ -31,7 +31,7 @@ redef class Sys
 	end
 end
 
-class MirrorRepository
+private class MirrorRepository
 	fun from_classinfo(classinfo: ClassInfo): StdClass
 	do
 		return new StdClass(classinfo)
@@ -51,27 +51,58 @@ class MirrorRepository
 		return res
 	end
 
-	fun from_propinfo(propinfo: PropertyInfo, anchor: Type): StdProperty
+	fun from_propinfo(propinfo: PropertyInfo, anchor: TypeMirror): StdProperty
 	do
 		var klass = self.from_classinfo(propinfo.introducer)
 		return new StdProperty(propinfo, klass, anchor)
 	end
 end
 
-class StdClass
-	super Class
-	protected var classinfo: ClassInfo
-	protected var cached_type_param: nullable SequenceRead[TypeParameter]
+private class StdDeclaration
+	super DeclarationMirror
 
-	protected fun refresh_cache_type_param: SequenceRead[TypeParameter]
+	private var propinfo: PropertyInfo
+	private var my_klass: ClassMirror
+
+	redef fun is_public do return propinfo.is_public
+	redef fun is_private do return propinfo.is_private
+	redef fun is_protected do return propinfo.is_protected
+	redef fun klass do return my_klass
+
+	redef fun bind(im)
+	do
+		return new StdPropertyInfo(propinfo, self, im)
+	end
+end
+
+private class StdMethodDeclaration
+	super StdDeclaration
+	super MethodDeclaration
+end
+
+private class StdMethodDeclaration
+	super StdDeclaration
+	super AttributeDeclaration
+end
+
+private class StdMethodDeclaration
+	super StdDeclaration
+	super VirtualTypeDeclaration
+end
+
+private class StdClass
+	super ClassMirror
+	private var classinfo: ClassInfo
+	private var cached_type_param: nullable SequenceRead[TypeParameter]
+
+	private fun refresh_cache_type_param: SequenceRead[TypeParameter]
 	do
 		var res = new Array[TypeParameter]
 		var i = 0
-		var tvar_bounds = self.classinfo.type_param_bounds
 		for tvar in self.classinfo.type_parameters do
 			# NOTE: If the type system becomes more complexe
 			# we would need to support more constraint.
-			var bound = mirror_repo.from_typeinfo(tvar_bounds[i])
+			var bound = mirror_repo.from_typeinfo(tvar.bound)
 			var constraint = new SubtypeConstraint(bound)
 			var typeparam = new StdTypeParameter(self, constraint, i, tvar)
 			res.push(typeparam)
@@ -84,8 +115,6 @@ class StdClass
 	redef fun name do return classinfo.to_s
 
 	redef fun arity
-	is
-	#ensure(result >= 0)
 	do
 		return self.classinfo.type_param_bounds.length
 	end
@@ -93,7 +122,7 @@ class StdClass
 	redef fun ancestors
 	do
 		var classes = self.classinfo.ancestors
-		var res = new Array[Class]
+		var res = new Array[ClassMirror]
 		for classinfo in classes do
 			var klass = mirror_repo.from_classinfo(classinfo)
 			res.push(klass)
@@ -108,7 +137,7 @@ class StdClass
 
 	redef fun bound_type
 	do
-		var types = new Array[Type]
+		var types = new Array[TypeMirror]
 		for tparam in type_parameters do
 			var ty = tparam.constraint.default_solution
 			types.push(ty)
@@ -133,20 +162,20 @@ class StdClass
 	redef fun ==(o) do return o isa SELF and o.classinfo == classinfo
 end
 
-class StdTypeParameter
+private class StdTypeParameter
 	super TypeParameter
-	protected var typeinfo: TypeInfo
+	private var typeinfo: TypeInfo
 end
 
 redef class FormalTypeConstraint
 	# Given the constraint `self`, returns the most basic
-	# `Type` that solves the constraint.
-	fun default_solution: Type is abstract
+	# `TypeMirror` that solves the constraint.
+	fun default_solution: TypeMirror is abstract
 end
 
-class SubtypeConstraint
+private class SubtypeConstraint
 	super FormalTypeConstraint
-	protected var supertype: Type
+	private var supertype: TypeMirror
 
 	redef fun is_valid(ty)
 	do
@@ -156,40 +185,14 @@ class SubtypeConstraint
 	redef fun default_solution do return supertype
 end
 
-redef class Type
+redef class TypeMirror
 	fun is_primitive: Bool is abstract
 end
 
-class StdType
-	super Type
-	protected var type_info: TypeInfo
-	protected var my_klass: Class
-	protected var cached_properties: nullable Set[Property]
-	protected var cached_decl_properties: nullable Set[Property]
-
-	redef fun properties
-	do
-		if cached_decl_properties == null then
-			var res = new HashSet[Property]
-			var my_klass = self.my_klass.as(StdClass)
-			for prop in my_klass.classinfo.properties do
-				var prop2 = mirror_repo.from_propinfo(prop, self)
-				res.add(prop2)
-			end
-			cached_decl_properties = res
-		end
-		return cached_decl_properties.as(not null)
-	end
-
-	redef fun declared_properties
-	do
-		if cached_properties == null then
-			cached_properties = super
-		end
-		return cached_properties.as(not null)
-	end
-
-	redef fun klass do return self.my_klass
+private class StdType
+	super TypeMirror
+	private var type_info: TypeInfo
+	private var my_klass: ClassMirror
 
 	redef fun as_nullable
 	do
@@ -245,33 +248,60 @@ class StdType
 	redef fun ==(o) do return o isa SELF and o.type_info == type_info
 end
 
-class StdDerivedType
-	super DerivedType
-	super StdType
+private class StdInstance
+	super InstanceMirror
+	private var instance: Object
+	private var my_klass: ClassMirror
+	private var cached_properties: nullable Collection[Property]
+	private var cached_decl_properties: nullable Set[Property]
+
+	redef fun klass do return self.my_klass
+
+	redef fun unwrap do return self.instance
+
+	redef fun properties
+	do
+		if cached_decl_properties == null then
+			var res = new Array[Property]
+			for decl in klass.decls do
+				var object_prop = decl.bind(self)
+				res.add(res)
+			end
+			cached_decl_properties = res
+		end
+		return cached_decl_properties.as(not null)
+	end
+
+	redef fun decl_properties
+	do
+		if cached_properties == null then
+			cached_properties = super
+		end
+		return cached_properties.as(not null)
+	end
 end
 
-abstract class StdProperty
+private abstract class StdProperty
 	super Property
-
 	type PROPINFO : PropertyInfo
 
-	protected var propinfo: PROPINFO
-	protected var intro: Class
-	protected var anchor: Type
+	private var propinfo: PROPINFO
+	private var my_decl: DeclarationMirror is noinit
+	private var my_recv: InstanceMirror is noinit
 
-	new(propinfo: PropertyInfo, klass: Class, anchor: Type)
+	new(propinfo: PropertyInfo, decl: DeclarationMirror, recv: InstanceMirror)
 	do
 		if propinfo isa AttributeInfo then
-			return new StdAttribute(propinfo, klass, anchor)
+			return new StdAttribute(propinfo, decl, recv)
 		else if propinfo isa MethodInfo then
-			return new StdMethod(propinfo, klass, anchor)
+			return new StdMethod(propinfo, decl, recv)
 		else
 			assert propinfo isa VirtualTypeInfo
-			return new StdVirtualType(propinfo, klass, anchor)
+			return new StdVirtualType(propinfo, decl, recv)
 		end
 	end
 
-	redef fun introducer do return self.intro
+	redef fun recv do return self.my_recv
 
 	# TODO: remove this when cache is ready.
 	redef fun ==(o) do return o isa SELF and o.propinfo == propinfo
@@ -279,24 +309,11 @@ abstract class StdProperty
 	redef fun name do return self.propinfo.name
 end
 
-redef class Attribute
-	fun get_for(object: Object): nullable Object is abstract
-	fun set_for(object: Object, val: nullable Object) is abstract
-end
-
-class StdAttribute
+private class StdAttribute
 	super StdProperty
-	super Attribute
+	super AttributeMirror
 
 	redef type PROPINFO: AttributeInfo
-
-	redef fun dyn_type
-	do
-		var anchor = self.anchor.as(StdType)
-		var typeinfo = self.propinfo.dynamic_type(anchor.type_info)
-		var res = mirror_repo.from_typeinfo(typeinfo)
-		return res
-	end
 
 	redef fun name
 	do
@@ -304,22 +321,20 @@ class StdAttribute
 		return res.substring_from(1)
 	end
 
-	redef fun get_for(object)
+	redef fun get()
 	do
-		return self.propinfo.value(object)
+		return self.propinfo.value(recv.unwrap)
 	end
 end
 
-class StdMethod
+private class StdMethod
 	super StdProperty
-	super Method
-
+	super MethodMirror
 	redef type PROPINFO: MethodInfo
 end
 
-class StdVirtualType
+private class StdVirtualType
 	super StdProperty
-	super VirtualType
-
+	super VirtualTypeMirror
 	redef type PROPINFO: VirtualTypeInfo
 end

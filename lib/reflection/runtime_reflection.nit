@@ -16,6 +16,24 @@ module runtime_reflection
 
 # Base class of our meta-hierarchy
 interface Mirror
+	fun name: String is abstract
+end
+
+# Base class for all runtime dependant reflected entities. In other words, this
+# class represents objects whose metaqueries must be done at runtime to be
+# coherent. Types and instances are good example, they require to be completly
+# resolved (contextualised) before being queried or manipulated. This "resolvness"
+# implies runtime because they are dynamic.
+interface RuntimeEntity
+	super Mirror
+end
+
+# Base class for all static entites reflected at runtime. Even though, we would
+# like to have only one unified meta-hierarchy of things, we must dissociate what
+# is dynamic (runtime) and what is static. Finally, some metaprogram requires
+# static knowledge during runtime to be useful.
+interface StaticEntity
+	super Mirror
 end
 
 # Base class of all environment kinds.
@@ -38,55 +56,84 @@ interface Environment
 	fun class_exist(classname: String): Bool is abstract
 
 	# Returns the type named `typename`, otherwise `null`.
-	fun get_class(classname: String): Class
+	fun get_class(classname: String): ClassMirror
 	is abstract, expect(class_exist(classname))
 
-	fun typeof(object: INSPECTABLE): Type is abstract
+	fun typeof(object: INSPECTABLE): TypeMirror is abstract
+
+	fun reflect(object: Object): InstanceMirror is abstract
 end
 
-interface Reflected
-	super Mirror
-	fun name: String is abstract
-end
-
-# Represents local property defined in a class
-interface Property
-	super Reflected
-
-	# The class who locally introduced this property
-	fun introducer: Class is abstract
-	fun global_property: Property is abstract
+# Static declaration info of a class property.
+interface DeclarationMirror
+	super StaticEntity
 	fun is_public: Bool is abstract
 	fun is_private: Bool is abstract
 	fun is_protected: Bool is abstract
+	fun is_abstract: Bool is abstract
+
+	# Returns the associated `PropertyMirror` of an object, ie it returns
+	# a runtime version of `self`.
+	fun bind(im: InstanceMirror): PropertyMirror is abstract
+
+	# The class where the declaration belongs
+	fun klass: ClassMirror is abstract
 end
 
-# Represents contextualized properties, ie a property whose receiver type had
-# been resolved.
-interface Typed
+interface TypedDeclaration
+	super DeclarationMirror
 	fun static_type: StaticType is abstract
-	fun dyn_type: Type is abstract
 end
 
-# A vritual type definition inside a class
-interface VirtualType
-	super Property
-	super Typed
+interface MethodDeclaration
+	super DeclarationMirror
+	fun parameters_type: SequenceRead[StaticType] is abstract
+	fun return_type: nullable StaticType is abstract
 end
 
-interface Method
-	super Property
-	super Typed
-	redef fun dyn_type: MethodType is abstract
+interface AttributeDeclaration
+	super TypedDeclaration
 end
 
-interface Attribute
-	super Property
-	super Typed
+interface VirtualTypeDeclaration
+	super TypedDeclaration
+end
+
+interface PropertyMirror
+	super RuntimeEntity
+	type DECLARATION: DeclarationMirror
+	fun decl: DECLARATION is abstract
+	fun recv: InstanceMirror is abstract
+end
+
+interface TypedProperty
+	super PropertyMirror
+	fun dyn_type: TypeMirror is abstract
+end
+
+interface MethodMirror
+	super PropertyMirror
+	redef type DECLARATION: MethodDeclaration
+	fun parameter_types: SequenceRead[TypeMirror] is abstract
+	fun return_type: nullable TypeMirror is abstract
+	fun is_callable_with(args: SequenceRead[nullable Object]): Bool is abstract
+	fun call(args: SequenceRead[nullable Object]): nullable Object is abstract
+end
+
+interface AttributeMirror
+	super TypedProperty
+	redef type DECLARATION: AttributeDeclaration
+	fun set(value: nullable Object) is abstract
+	fun get: nullable Object is abstract
+end
+
+interface VirtualTypeMirror
+	super TypedProperty
+	redef type DECLARATION: VirtualTypeDeclaration
 end
 
 interface FormalTypeConstraint
-	fun is_valid(ty: Type): Bool is abstract
+	fun is_valid(ty: TypeMirror): Bool is abstract
 end
 
 class NullConstraint
@@ -98,46 +145,48 @@ end
 abstract class TypeParameter
 	super StaticType
 	# where the type parameter belongs
-	var klass: Class is protected writable
+	var klass: ClassMirror is protected writable
 	var constraint: FormalTypeConstraint is protected writable
 	var rank: Int is protected writable
 end
 
 interface StaticType
-	super Reflected
-	fun to_dyn(recv_type: Type): Type is abstract
-	fun unsafe_to_dyn: Type is abstract
+	super StaticEntity
+	fun to_dyn(recv_type: TypeMirror): TypeMirror is abstract
+	fun unsafe_to_dyn: TypeMirror is abstract
 end
 
-interface Class
-	super Reflected
+interface ClassMirror
+	super StaticEntity
 
 	# The number of formal parameter
 	fun arity: Int is abstract
 
+	# All local declarations.
+	fun decls: Collection[DeclarationMirror] is abstract
+
 	# Returns a type for this class. If `self` is generic then it
 	# returns a derived type whose type arguments are the bounds
 	# of its type parameters.
-	fun bound_type: Type is abstract
+	fun bound_type: TypeMirror is abstract
 
 	# The bound for each formal parameter
 	fun type_parameters: SequenceRead[TypeParameter] is abstract
 
-	fun [](types: Type...): DerivedType
+	fun [](types: TypeMirror...): TypeMirror
 	do
 		var res = derive_from(types)
-		assert res isa DerivedType
 		return res
 	end
 
 	# Returns all ancestors including `self` in linearized order.
-	fun ancestors: SequenceRead[Class] is abstract
+	fun ancestors: SequenceRead[ClassMirror] is abstract
 
 	# Derive a new type from types arguments.
-	fun derive_from(types: SequenceRead[Type]): Type
+	fun derive_from(types: SequenceRead[TypeMirror]): TypeMirror
 	is abstract, expect(are_valid_type_values(types))
 
-	fun are_valid_type_values(types: SequenceRead[Type]): Bool
+	fun are_valid_type_values(types: SequenceRead[TypeMirror]): Bool
 	do
 		for i in [0..types.length[ do
 			var constraint = type_parameters[i].constraint
@@ -150,42 +199,65 @@ interface Class
 	end
 end
 
-# Denotes the absence of type (absurd type)
-class NoneType
-	super Type
-	redef fun properties do return new ArraySet[Property]
-	redef fun can_new_instance(args) do return false
-	redef fun iza(other) do return other isa NoneType
-	redef fun as_nullable do return self
-	redef fun is_nullable do return false
-	redef fun as_not_null do return self
+interface TypeMirror
+	super RuntimeEntity
+
+	fun klass: ClassMirror is abstract
+
+	# Subtype testing, returns `true` is `self isa other`,
+	# otherwise false.
+	fun iza(other: TypeMirror): Bool is abstract
+
+	fun as_nullable: TypeMirror is abstract
+
+	fun is_nullable: Bool
+	do
+		return	self == self.as_nullable
+	end
+
+	fun as_not_null: TypeMirror is abstract
+
+	# Returns true if current args match the default init signature,
+	# otherwise false.
+	fun can_new_instance(args: SequenceRead[nullable Object]): Bool is abstract
+
+	# Command to instantiate a new object.
+	# `args` : arguments for the constructor.
+	fun new_instance(args: SequenceRead[nullable Object]): Object
+	is abstract, expect(self.can_new_instance(args))
+
+	fun type_arguments: SequenceRead[TypeMirror] is abstract
+
 end
 
 # Base interface for all dynamic type living at runtime. A dynamic type is closed,
 # ie it has no static type like: generics, formal type, etc.
-interface Type
-	super Reflected
+interface InstanceMirror
+	super RuntimeEntity
 
-	fun klass: Class is abstract
+	fun klass: ClassMirror is abstract
+	fun dyn_type: TypeMirror is abstract
+	fun properties: Collection[PropertyMirror] is abstract
 
-	fun properties: Set[Property] is abstract
+	# Return the underlying reflected object.
+	fun unwrap: Object is abstract
 
-	fun all_attributes: SequenceRead[Attribute]
+	fun all_attributes: SequenceRead[AttributeMirror]
 	do
-		var res = new Array[Attribute]
+		var res = new Array[AttributeMirror]
 		for dprop in self.properties do
-			if dprop isa Attribute then
+			if dprop isa AttributeMirror then
 				res.push(dprop)
 			end
 		end
 		return res
 	end
 
-	fun all_methods: SequenceRead[Method]
+	fun all_methods: SequenceRead[MethodMirror]
 	do
-		var res = new Array[Method]
+		var res = new Array[MethodMirror]
 		for dprop in self.properties do
-			if dprop isa Method then
+			if dprop isa MethodMirror then
 				res.push(dprop)
 			end
 		end
@@ -194,43 +266,48 @@ interface Type
 
 	# Returns a set of property introduced by this type and all its
 	# refinements
-	fun declared_properties: Set[Property]
+	fun decl_properties: Collection[PropertyMirror]
 	do
-		var res = new HashSet[Property]
+		var res = new HashSet[PropertyMirror]
 		for prop in self.properties do
-			if prop.introducer == klass then
+			if prop.decl.klass == klass then
 				res.add(prop)
 			end
 		end
 		return res
 	end
 
-	fun declared_attributes: SequenceRead[Attribute]
+	fun decl_attributes: SequenceRead[AttributeMirror]
 	do
-		var res = new Array[Attribute]
+		var res = new Array[AttributeMirror]
 		for prop in self.all_attributes do
-			if prop.introducer == klass then
+			if prop.decl.klass == klass then
 				res.add(prop)
 			end
 		end
 		return res
 	end
 
-	fun declared_methods: SequenceRead[Method]
+	fun decl_methods: SequenceRead[MethodMirror]
 	do
-		var res = new Array[Method]
+		var res = new Array[MethodMirror]
 		for prop in self.all_methods do
-			if prop.introducer == klass then
+			if prop.decl.klass == klass then
 				res.add(prop)
 			end
 		end
 		return res
 	end
 
-	# Returns a `Property` named `property_name` if it exists, otherwise
+	# Returns a `PropertyMirror` named `property_name` if it exists, otherwise
 	# `null`.
-	fun property_or_null(property_name: String): nullable Property
+	fun property_or_null(property_name: String): nullable PropertyMirror
 	do
+		for prop in properties do
+			if prop.name == property_name then
+				return prop
+			end
+		end
 		return null
 	end
 
@@ -246,7 +323,7 @@ interface Type
 	fun has_method(method_name: String): Bool
 	do
 		var prop = self.property_or_null(method_name)
-		return prop != null and prop isa Method
+		return prop != null and prop isa MethodMirror
 	end
 
 	# Returns `true` if this type has an attribute named `attribute_name`,
@@ -254,64 +331,30 @@ interface Type
 	fun has_attribute(attribute_name: String): Bool
 	do
 		var prop = self.property_or_null(attribute_name)
-		return prop != null and prop isa Attribute
+		return prop != null and prop isa AttributeMirror
 	end
 
-	# Returns a `Property` named `property_name`.
-	fun property(property_name: String): Property
+	# Returns a `PropertyMirror` named `property_name`.
+	fun property(property_name: String): PropertyMirror
 	is
 		expect(has_property(property_name))
 	do
 		return self.property_or_null(property_name).as(not null)
 	end
 
-	# Returns a `Method` named `method_name`.
-	fun method(method_name: String): Method
+	# Returns a `MethodMirror` named `method_name`.
+	fun method(method_name: String): MethodMirror
 	is
 		expect(has_method(method_name))
 	do
-		return self.property(method_name).as(Method)
+		return self.property(method_name).as(MethodMirror)
 	end
 
-	# Returns a `Attribute` named `attribute_name`.
-	fun attribute(attribute_name: String): Attribute
+	# Returns a `AttributeMirror` named `attribute_name`.
+	fun attribute(attribute_name: String): AttributeMirror
 	is
 		expect(has_attribute(attribute_name))
 	do
-		return self.property(attribute_name).as(Attribute)
+		return self.property(attribute_name).as(AttributeMirror)
 	end
-
-	# Subtype testing, returns `true` is `self isa other`,
-	# otherwise false.
-	fun iza(other: Type): Bool is abstract
-
-	fun as_nullable: Type is abstract
-
-	fun is_nullable: Bool
-	do
-		return	self == self.as_nullable
-	end
-
-	fun as_not_null: Type is abstract
-
-	# Returns true if current args match the default init signature,
-	# otherwise false.
-	fun can_new_instance(args: SequenceRead[nullable Object]): Bool is abstract
-
-	# Command to instantiate a new object.
-	# `args` : arguments for the constructor.
-	fun new_instance(args: SequenceRead[nullable Object]): Object
-	is abstract, expect(self.can_new_instance(args))
-end
-
-# A generic type who had been resolved.
-interface DerivedType
-	super Type
-	fun type_arguments: SequenceRead[Type] is abstract
-end
-
-interface MethodType
-	super Type
-	fun return_type: Type is abstract
-	fun parameter_types: SequenceRead[Type] is abstract
 end
