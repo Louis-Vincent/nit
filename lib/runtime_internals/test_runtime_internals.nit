@@ -284,7 +284,7 @@ for tp in cK.type_parameters do
 end
 
 var ancestors = cI.ancestors.to_a
-print ancestors
+print "ancestors of `I`: {ancestors}"
 
 # Tests for `MethodInfo` queries
 var method_foo = get_prop("foo", cE).as(MethodInfo)
