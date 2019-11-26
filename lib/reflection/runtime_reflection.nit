@@ -141,18 +141,31 @@ class NullConstraint
 	redef fun is_valid(ty) do return true
 end
 
-# A type parameter in a generic type
-interface TypeParameter
-	super StaticType
-	# The class where `self` belongs to
+# An attribute of a class, like super types, type parameter, etc.
+interface ClassAttributeMirror
+	super StaticEntity
+
+	# The class where the attribute belongs
 	fun klass: ClassMirror is abstract
-	fun constraint: FormalTypeConstraint is abstract
-	fun rank: Int is abstract
+end
+
+interface SuperTypeAttributeMirror
+	super ClassAttributeMirror
+
+	fun static_type: StaticType is abstract
 end
 
 interface StaticType
 	super StaticEntity
 	fun to_dyn(recv_type: TypeMirror): TypeMirror is abstract
+end
+
+# A type parameter in a generic type
+interface TypeParameter
+	super ClassAttributeMirror
+	super StaticType
+	fun constraint: FormalTypeConstraint is abstract
+	fun rank: Int is abstract
 end
 
 interface ClassMirror
@@ -178,6 +191,10 @@ interface ClassMirror
 		return res
 	end
 
+	#fun class_attributes: Collection[ClassAttributeMirror] is abstract
+
+	fun supertypes: Collection[SuperTypeAttributeMirror] is abstract
+
 	# Returns all ancestors including `self` in linearized order.
 	fun ancestors: SequenceRead[ClassMirror] is abstract
 
@@ -197,8 +214,15 @@ interface ClassMirror
 		return true
 	end
 
-	fun < (other: ClassMirror): Bool is abstract
-	fun <= (other: ClassMirror): Bool is abstract
+	fun < (other: ClassMirror): Bool
+	do
+		return ancestors.has(other)
+	end
+
+	fun <= (other: ClassMirror): Bool
+	do
+		return self == other or self < other
+	end
 end
 
 interface TypeMirror
@@ -232,9 +256,15 @@ interface TypeMirror
 
 	fun type_arguments: SequenceRead[TypeMirror] is abstract
 
-	fun < (other: InstanceMirror): Bool is abstract
-	fun <= (other: InstanceMirror): Bool is abstract
+	fun < (other: TypeMirror): Bool
+	do
+		return self != other and self.iza(other)
+	end
 
+	fun <= (other: TypeMirror): Bool
+	do
+		return self.iza(other)
+	end
 end
 
 # Base interface for all dynamic type living at runtime. A dynamic type is closed,

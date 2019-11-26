@@ -29,6 +29,12 @@ redef class Sys
 		var typeinfo = self.rti_repo.object_type(object)
 		return self.mirror_repo.from_typeinfo(typeinfo)
 	end
+
+	redef fun reflect(object)
+	do
+		var tm = typeof(object)
+		return new StdInstance(object, tm)
+	end
 end
 
 redef class TypeInfo
@@ -56,43 +62,44 @@ private class MirrorRepository
 	is
 		expect(typeinfo.is_closed)
 	do
-		var klass = self.from_classinfo(typeinfo.describee)
+		var klass = self.from_classinfo(typeinfo.klass)
 		var res = new StdType(typeinfo, klass)
 		return res
-	end
-
-	fun from_propinfo(propinfo: PropertyInfo, anchor: TypeMirror): StdProperty
-	do
-		var klass = self.from_classinfo(propinfo.introducer)
-		return new StdProperty(propinfo, klass, anchor)
 	end
 end
 
 private class StdDeclaration
 	super DeclarationMirror
 
-	private var propinfo: PropertyInfo
+	private type PROPINFO: PropertyInfo
+	private var propinfo: PROPINFO
 	private var my_klass: ClassMirror
 
-	redef fun is_public do return propinfo.is_public
-	redef fun is_private do return propinfo.is_private
-	redef fun is_protected do return propinfo.is_protected
+	redef fun is_public do abort #return propinfo.is_public
+	redef fun is_private do abort #return propinfo.is_private
+	redef fun is_protected do abort #return propinfo.is_protected
 	redef fun klass do return my_klass
 
 	redef fun bind(im)
 	do
-		return new StdPropertyInfo(propinfo, self, im)
+		return new StdProperty(propinfo, self, im)
 	end
+
+	redef fun name do return propinfo.name
+
 end
 
 private class StdMethodDeclaration
 	super StdDeclaration
 	super MethodDeclaration
 
+	redef type PROPINFO: MethodInfo
+
 	redef fun return_type
 	do
 		var return_type = self.propinfo.return_type
 		if return_type == null then return null
+		return new StdStaticType(return_type)
 	end
 end
 
@@ -100,10 +107,12 @@ private class StdAttributeDeclaration
 	super StdDeclaration
 	super AttributeDeclaration
 
+	redef type PROPINFO: AttributeInfo
+
 	redef fun static_type
 	do
 		var typeinfo = propinfo.static_type
-		return mirror_repo.from_typeinfo(typeinfo)
+		return new StdStaticType(typeinfo)
 	end
 end
 
@@ -116,6 +125,7 @@ private class StdClass
 	super ClassMirror
 	private var classinfo: ClassInfo
 	private var cached_ancestors: nullable SequenceRead[ClassMirror]
+	private var cached_supertypes: nullable Collection[SuperTypeAttributeMirror]
 	private var cached_type_param: nullable SequenceRead[TypeParameter]
 
 	private fun refresh_cache_type_param: SequenceRead[TypeParameter]
@@ -139,7 +149,7 @@ private class StdClass
 
 	redef fun arity
 	do
-		return self.classinfo.type_param_bounds.length
+		return self.type_parameters.length
 	end
 
 	redef fun ancestors
@@ -153,12 +163,27 @@ private class StdClass
 			end
 			self.cached_ancestors = res
 		end
-		return self.cached_ancestors
+		return self.cached_ancestors.as(not null)
 	end
 
 	redef fun type_parameters
 	do
 		return cached_type_param or else refresh_cache_type_param
+	end
+
+	redef fun supertypes
+	do
+		if cached_supertypes == null then
+			# TODO: refactor with `class_attributes`
+			var supertypes = self.classinfo.super_decls
+			var res = new Array[SuperTypeAttributeMirror]
+			for st in supertypes do
+				var st2 = new StdSuperType(st, self)
+				res.add(st2)
+			end
+			cached_supertypes = res
+		end
+		return cached_supertypes.as(not null)
 	end
 
 	redef fun bound_type
@@ -188,21 +213,43 @@ private class StdClass
 	redef fun ==(o) do return o isa SELF and o.classinfo == classinfo
 end
 
-abstract class StdStaticType
+private class StdSuperType
+	super SuperTypeAttributeMirror
+
+	private var typeinfo: TypeInfo
+	private var belongs_to: ClassMirror
+
+	redef fun name do return typeinfo.to_s
+
+	redef fun klass do return self.belongs_to
+
+	# TODO
+	redef fun static_type do abort
+end
+
+private class StdStaticType
 	super StaticType
 	private var typeinfo: TypeInfo
+
+	redef fun name do return typeinfo.to_s
+
+	redef fun ==(o) do return o isa SELF and o.typeinfo == typeinfo
 end
 
 private class StdTypeParameter
-	super StdStaticType
 	super TypeParameter
+
 	private var belongs_to: ClassMirror
 	private var my_constraint: FormalTypeConstraint
 	private var my_rank: Int
+	private var typeinfo: TypeInfo
 
 	redef fun klass do return self.belongs_to
 	redef fun constraint do return self.my_constraint
-	redef fun my_rank do return self.my_rank
+	redef fun rank do return self.my_rank
+
+	# TODO
+	redef fun to_dyn(recv_type) do abort
 end
 
 redef class FormalTypeConstraint
@@ -232,9 +279,7 @@ private class StdType
 	private var type_info: TypeInfo
 	private var my_klass: ClassMirror
 
-	redef fun typed_ancestors
-	do
-	end
+	redef fun klass do return self.my_klass
 
 	redef fun as_nullable
 	do
@@ -293,21 +338,24 @@ end
 private class StdInstance
 	super InstanceMirror
 	private var instance: Object
-	private var my_klass: ClassMirror
-	private var cached_properties: nullable Collection[Property]
-	private var cached_decl_properties: nullable Set[Property]
+	private var tm: TypeMirror
+	private var cached_properties: nullable Collection[PropertyMirror] = null
+	private var cached_decl_properties: nullable Collection[PropertyMirror] = null
 
-	redef fun klass do return self.my_klass
+	redef fun to_s do return instance.to_s
+
+	redef fun klass do return self.tm.klass
+	redef fun dyn_type do return self.tm
 
 	redef fun unwrap do return self.instance
 
 	redef fun properties
 	do
 		if cached_decl_properties == null then
-			var res = new Array[Property]
+			var res = new Array[PropertyMirror]
 			for decl in klass.decls do
 				var object_prop = decl.bind(self)
-				res.add(res)
+				res.add(object_prop)
 			end
 			cached_decl_properties = res
 		end
@@ -324,12 +372,12 @@ private class StdInstance
 end
 
 private abstract class StdProperty
-	super Property
+	super PropertyMirror
 	type PROPINFO : PropertyInfo
 
 	private var propinfo: PROPINFO
-	private var my_decl: DeclarationMirror is noinit
-	private var my_recv: InstanceMirror is noinit
+	private var my_decl: DeclarationMirror
+	private var my_recv: InstanceMirror
 
 	new(propinfo: PropertyInfo, decl: DeclarationMirror, recv: InstanceMirror)
 	do
@@ -363,7 +411,7 @@ private class StdAttribute
 		return res.substring_from(1)
 	end
 
-	redef fun get()
+	redef fun get
 	do
 		return self.propinfo.value(recv.unwrap)
 	end
