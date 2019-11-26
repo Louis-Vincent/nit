@@ -31,6 +31,21 @@ redef class Sys
 	end
 end
 
+redef class TypeInfo
+
+	# Determines if the type is closed, ie it is not a generic,
+	# formal type, or any kind of unresolved type.
+	fun is_closed: Bool
+	do
+		if self.is_formal_type then return false
+		var res = true
+		for targ in type_arguments do
+			res = res and not targ.is_closed
+		end
+		return res
+	end
+end
+
 private class MirrorRepository
 	fun from_classinfo(classinfo: ClassInfo): StdClass
 	do
@@ -39,15 +54,10 @@ private class MirrorRepository
 
 	fun from_typeinfo(typeinfo: TypeInfo): StdType
 	is
-		#expect(not typeinfo.is_generic and not typeinfo.is_type_param)
+		expect(typeinfo.is_closed)
 	do
 		var klass = self.from_classinfo(typeinfo.describee)
-		var res: StdType
-		if typeinfo.is_derived then
-			res = new StdDerivedType(typeinfo, klass)
-		else
-			res = new StdType(typeinfo, klass)
-		end
+		var res = new StdType(typeinfo, klass)
 		return res
 	end
 
@@ -78,14 +88,26 @@ end
 private class StdMethodDeclaration
 	super StdDeclaration
 	super MethodDeclaration
+
+	redef fun return_type
+	do
+		var return_type = self.propinfo.return_type
+		if return_type == null then return null
+	end
 end
 
-private class StdMethodDeclaration
+private class StdAttributeDeclaration
 	super StdDeclaration
 	super AttributeDeclaration
+
+	redef fun static_type
+	do
+		var typeinfo = propinfo.static_type
+		return mirror_repo.from_typeinfo(typeinfo)
+	end
 end
 
-private class StdMethodDeclaration
+private class StdVirtualTypeDeclaration
 	super StdDeclaration
 	super VirtualTypeDeclaration
 end
@@ -93,6 +115,7 @@ end
 private class StdClass
 	super ClassMirror
 	private var classinfo: ClassInfo
+	private var cached_ancestors: nullable SequenceRead[ClassMirror]
 	private var cached_type_param: nullable SequenceRead[TypeParameter]
 
 	private fun refresh_cache_type_param: SequenceRead[TypeParameter]
@@ -121,13 +144,16 @@ private class StdClass
 
 	redef fun ancestors
 	do
-		var classes = self.classinfo.ancestors
-		var res = new Array[ClassMirror]
-		for classinfo in classes do
-			var klass = mirror_repo.from_classinfo(classinfo)
-			res.push(klass)
+		if self.cached_ancestors == null then
+			var classes = self.classinfo.ancestors
+			var res = new Array[ClassMirror]
+			for classinfo in classes do
+				var klass = mirror_repo.from_classinfo(classinfo)
+				res.push(klass)
+			end
+			self.cached_ancestors = res
 		end
-		return res
+		return self.cached_ancestors
 	end
 
 	redef fun type_parameters
@@ -162,9 +188,21 @@ private class StdClass
 	redef fun ==(o) do return o isa SELF and o.classinfo == classinfo
 end
 
-private class StdTypeParameter
-	super TypeParameter
+abstract class StdStaticType
+	super StaticType
 	private var typeinfo: TypeInfo
+end
+
+private class StdTypeParameter
+	super StdStaticType
+	super TypeParameter
+	private var belongs_to: ClassMirror
+	private var my_constraint: FormalTypeConstraint
+	private var my_rank: Int
+
+	redef fun klass do return self.belongs_to
+	redef fun constraint do return self.my_constraint
+	redef fun my_rank do return self.my_rank
 end
 
 redef class FormalTypeConstraint
@@ -193,6 +231,10 @@ private class StdType
 	super TypeMirror
 	private var type_info: TypeInfo
 	private var my_klass: ClassMirror
+
+	redef fun typed_ancestors
+	do
+	end
 
 	redef fun as_nullable
 	do

@@ -142,18 +142,17 @@ class NullConstraint
 end
 
 # A type parameter in a generic type
-abstract class TypeParameter
+interface TypeParameter
 	super StaticType
-	# where the type parameter belongs
-	var klass: ClassMirror is protected writable
-	var constraint: FormalTypeConstraint is protected writable
-	var rank: Int is protected writable
+	# The class where `self` belongs to
+	fun klass: ClassMirror is abstract
+	fun constraint: FormalTypeConstraint is abstract
+	fun rank: Int is abstract
 end
 
 interface StaticType
 	super StaticEntity
 	fun to_dyn(recv_type: TypeMirror): TypeMirror is abstract
-	fun unsafe_to_dyn: TypeMirror is abstract
 end
 
 interface ClassMirror
@@ -197,12 +196,17 @@ interface ClassMirror
 		end
 		return true
 	end
+
+	fun < (other: ClassMirror): Bool is abstract
+	fun <= (other: ClassMirror): Bool is abstract
 end
 
 interface TypeMirror
 	super RuntimeEntity
 
 	fun klass: ClassMirror is abstract
+
+	fun typed_ancestors: SequenceRead[TypeMirror] is abstract
 
 	# Subtype testing, returns `true` is `self isa other`,
 	# otherwise false.
@@ -227,6 +231,9 @@ interface TypeMirror
 	is abstract, expect(self.can_new_instance(args))
 
 	fun type_arguments: SequenceRead[TypeMirror] is abstract
+
+	fun < (other: InstanceMirror): Bool is abstract
+	fun <= (other: InstanceMirror): Bool is abstract
 
 end
 
