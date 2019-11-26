@@ -37,6 +37,11 @@ class D
 end
 
 class E[T1,T2]
+
+	fun foo(x: T1): T2 is abstract
+	fun bar(x: Int): Int is abstract
+	fun baz(x: T2): D is abstract
+	fun bad(x: D): T1 is abstract
 end
 
 class F
@@ -268,3 +273,17 @@ end
 
 var ancestors = cI.ancestors.to_a
 print ancestors
+
+var method_foo = get_prop("foo", cE).as(MethodInfo)
+var method_bar = get_prop("bar", cE).as(MethodInfo)
+var method_baz = get_prop("baz", cE).as(MethodInfo)
+var method_bad = get_prop("bad", cE).as(MethodInfo)
+
+print method_foo.parameter_types # [T1]
+print method_foo.return_type or else "" # T2
+print method_bar.parameter_types # [Int]
+print method_bar.return_type or else "" # Int
+print method_baz.parameter_types # [T2]
+print method_baz.return_type or else "" # D
+print method_bad.parameter_types # [D]
+print method_bad.return_type or else "" # [T1]

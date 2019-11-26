@@ -788,23 +788,36 @@ class MethodInfo
 		if pname == "call" then
 			out.ok = self.call(v, args)
 		else if pname == "parameter_types" then
-			out.ok = self.parameter_types(v, args[1].as(TypeInfo))
+			out.ok = self.parameter_types(v)
+		else if pname == "return_type" then
+			out.ok = self.return_type(v)
 		else
 			super
 		end
 	end
 
-	fun parameter_types(v: NaiveInterpreter, recv_type: TypeInfo): Instance
+	fun return_type(v: NaiveInterpreter): nullable Instance
+	do
+		var msignature = mpropdef.new_msignature or else mpropdef.msignature
+		var return_mtype = msignature.return_mtype
+		var res: nullable Instance = null
+		if return_mtype != null then
+			res = v.rti_repo.from_mtype(return_mtype)
+		end
+		return res
+	end
+
+	fun parameter_types(v: NaiveInterpreter): Instance
 	do
 		var msignature = mpropdef.new_msignature or else mpropdef.msignature
 		var res = new Array[TypeInfo]
-		var mmodule = v.mainmodule
-		var mclass_type = recv_type.as(MClassType)
 		for mparam in msignature.mparameters do
 			var mtype = mparam.mtype
-			if mtype.need_anchor then
-				mtype = mtype.anchor_to(mmodule, mclass_type)
-			end
+			# NOTE: we purposely don't anchor the param type since we
+			# want the static type.
+			#if mtype.need_anchor then
+			#	mtype = mtype.anchor_to(mmodule, mclass_type)
+			#end
 			var ty = v.rti_repo.from_mtype(mtype)
 			res.push(ty)
 		end
