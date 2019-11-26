@@ -121,7 +121,11 @@ end
 
 universal MethodInfo
 	super PropertyInfo
-	fun parameter_types(recv_type: TypeInfo): SequenceRead[TypeInfo] is intern
+	# If `MethodInfo` is a function, then it returns the return static type,
+	# otherwise null.
+	fun return_type: nullable TypeInfo is intern
+	# Returns the static type of each parameters
+	fun parameter_types: SequenceRead[TypeInfo] is intern
 	fun call(args: Array[nullable Object]): nullable Object is intern
 end
 
