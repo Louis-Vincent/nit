@@ -25,9 +25,20 @@ end
 
 universal ClassInfo
 	super RuntimeInfo
+	# Linearized class hierarchy
 	fun ancestors: Iterator[ClassInfo] is intern
+
+	# local properties (intro + refined) of a class
 	fun properties: Iterator[PropertyInfo] is intern
+
+	# Instantiate a new type
 	fun new_type(args: Array[TypeInfo]): TypeInfo is intern
+
+	# Returns an iterator over the super declaration of a class.
+	# The iteration order isn't garantee to be the same as the declaration
+	# order due to class refinement.
+	fun super_decls: Iterator[TypeInfo] is intern
+
 	fun bound_type: TypeInfo
 	do
 		var bounds = new Array[TypeInfo]
@@ -39,7 +50,9 @@ universal ClassInfo
 		end
 		return self.new_type(bounds)
 	end
+
 	fun unbound_type: TypeInfo is intern
+
 	fun is_interface: Bool is intern
 	fun is_abstract: Bool is intern
 	fun is_universal: Bool is intern
@@ -68,6 +81,10 @@ universal TypeInfo
 	fun iza(other: TypeInfo): Bool is intern
 	fun new_instance(args: Array[nullable Object]): Object is intern
 	redef fun to_s is intern
+
+	redef fun ==(o) do return o isa SELF and native_equal(o)
+
+	fun native_equal(o: TypeInfo): Bool is intern
 end
 
 interface PropertyInfo

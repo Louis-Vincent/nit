@@ -395,7 +395,23 @@ class ClassInfo
 			out.ok = self.new_type(v, args[1])
 		else if pname == "type_parameters" then
 			out.ok = self.type_parameters(v)
+		else if pname == "super_decls" then
+			out.ok = self.super_decls(v)
 		end
+	end
+
+	protected fun super_decls(v: NaiveInterpreter): InstanceIterator[TypeInfo]
+	do
+		var mclassdefs = self.reflectee.mclassdefs
+		var res = new Array[TypeInfo]
+		for mclassdef in mclassdefs do
+			for ty in mclassdef.supertypes do
+				if ty == v.mainmodule.object_type then continue
+				var typeinfo = v.rti_repo.from_mtype(ty)
+				res.add(typeinfo)
+			end
+		end
+		return new InstanceIterator[TypeInfo](v.type_iterator_type, res.iterator)
 	end
 
 	protected fun new_type(v: NaiveInterpreter, args: Instance): TypeInfo
@@ -516,7 +532,7 @@ redef class MParameterType
 	end
 	redef fun static_bound(mmodule)
 	do
-		var mclass_type = mclass.collect_linearization(mmodule).last.as(MClassDef)
+		var mclass_type = mclass.most_specific_def(mmodule)
 		var bound_mtype = mclass_type.bound_mtype
 		return bound_mtype.arguments[rank]
 	end
@@ -580,7 +596,20 @@ class TypeInfo
 			out.ok = self.new_instance(v, args[1])
 		else if pname == "bound" then
 			out.ok = self.bound(v)
+		else if pname == "native_equal" then
+			out.ok = self.native_equal(v, args[1])
 		end
+	end
+
+	# Native equal is necessary due to generic type.
+	# Generic type cause the identity equality test to fail, since the cache
+	# can't reuse previously cached formal type from the origina class the
+	# generic type might extends.
+	protected fun native_equal(v: NaiveInterpreter, o: Instance): Instance
+	do
+		assert o isa TypeInfo
+		var res = self.reflectee == o.reflectee
+		return v.bool_instance(res)
 	end
 
 	protected fun bound(v: NaiveInterpreter): TypeInfo
@@ -643,15 +672,12 @@ class TypeInfo
 	end
 
 	protected fun type_arguments(v: NaiveInterpreter): Instance
-	is
-		expect(not self.reflectee.need_anchor and self.reflectee isa MGenericType)
 	do
 		# NOTE: Should we look through the inheritance hierarchy?
 		var mgeneric = self.reflectee.as(MGenericType)
 		var types = new Array[TypeInfo]
 		var rti_repo = v.rti_repo
 		for arg in mgeneric.arguments do
-			assert arg isa MNullableType or arg isa MClassType
 			var ty = rti_repo.from_mtype(arg)
 			types.push(ty)
 		end
