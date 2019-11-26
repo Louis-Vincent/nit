@@ -674,10 +674,10 @@ class TypeInfo
 	protected fun type_arguments(v: NaiveInterpreter): Instance
 	do
 		# NOTE: Should we look through the inheritance hierarchy?
-		var mgeneric = self.reflectee.as(MGenericType)
+		var mtype = self.reflectee.undecorate.as(MClassType)
 		var types = new Array[TypeInfo]
 		var rti_repo = v.rti_repo
-		for arg in mgeneric.arguments do
+		for arg in mtype.arguments do
 			var ty = rti_repo.from_mtype(arg)
 			types.push(ty)
 		end
