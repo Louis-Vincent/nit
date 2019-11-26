@@ -79,6 +79,18 @@ class K[E]
 	var p1: E
 end
 
+class K2[E]
+end
+
+redef class Z1
+	super K2[Int]
+end
+
+class M[E]
+	super K[Int]
+	super K2[E]
+end
+
 class L
 	var x: Int
 	var y: Int
@@ -274,6 +286,7 @@ end
 var ancestors = cI.ancestors.to_a
 print ancestors
 
+# Tests for `MethodInfo` queries
 var method_foo = get_prop("foo", cE).as(MethodInfo)
 var method_bar = get_prop("bar", cE).as(MethodInfo)
 var method_baz = get_prop("baz", cE).as(MethodInfo)
@@ -287,3 +300,20 @@ print method_baz.parameter_types # [T2]
 print method_baz.return_type or else "" # D
 print method_bad.parameter_types # [D]
 print method_bad.return_type or else "" # [T1]
+
+# Tests for super declarations for `ClassInfo`
+
+print cZ1.super_decls.to_a
+
+var cK2 = rti_repo.get_classinfo("K2").as(not null)
+var cM = rti_repo.get_classinfo("M").as(not null)
+
+var first_tparam = cM.type_parameters[0] # formal type
+assert first_tparam.is_formal_type
+var superdecls = cM.super_decls.to_a
+assert superdecls.length == 2 # K[Int], K2[E]
+var k_super_decl = superdecls[0] # K[Int]
+var k2_super_decl = superdecls[1] # K2[E]
+# Type parameter must persist through super declarations.
+assert k2_super_decl.type_arguments[0] == first_tparam
+

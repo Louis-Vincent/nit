@@ -14,7 +14,11 @@
 
 import test_runtime_internals_base
 
+class Y[E]
+end
+
 redef class Z1
+	super Y[String]
 	redef fun p1
 	do
 		return "redef Z1:p1"
