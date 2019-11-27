@@ -20,18 +20,17 @@ end
 
 fun to_json(object: Object): String
 do
-	var ty = typeof(object)
+	var im = reflect(object)
 	var text_ty = get_type("Text")
 	var strings = new Array[String]
-	for attr in ty.all_attributes do
-		var attr_ty = attr.dyn_type.as_not_null
-		# Redondance ici
-		var value = attr.get_for(object)
+	for attr in im.all_attributes do
+		var attr_ty = attr.dyn_type
+		var value = attr.get
 		var entry = "\"{attr.name}\": "
 		if value == null then
 			entry += "null"
 		else if attr_ty.is_primitive then
-			if attr_ty.iza(text_ty) then
+			if attr_ty <= text_ty then
 				entry += "\"{value}\""
 			else
 				entry += "{value}"
@@ -54,9 +53,8 @@ var c1 = new C(2, 4, "c1")
 
 a1.b1 = b1
 a1.b2 = b2
-
 print to_json(a1)
-print ""
-print to_json(a2)
-print ""
-print to_json(c1)
+#print ""
+#print to_json(a2)
+#print ""
+#print to_json(c1)

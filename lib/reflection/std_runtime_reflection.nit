@@ -127,6 +127,7 @@ private class StdClass
 	private var cached_ancestors: nullable SequenceRead[ClassMirror]
 	private var cached_supertypes: nullable Collection[SuperTypeAttributeMirror]
 	private var cached_type_param: nullable SequenceRead[TypeParameter]
+	private var cached_declarations: nullable Collection[DeclarationMirror]
 
 	private fun refresh_cache_type_param: SequenceRead[TypeParameter]
 	do
@@ -143,6 +144,19 @@ private class StdClass
 		end
 		self.cached_type_param = res
 		return res
+	end
+
+	redef fun declarations
+	do
+		if self.cached_declarations == null then
+			var res = new Array[DeclarationMirror]
+			for prop in self.classinfo.properties do
+				var wrapped = new StdDeclaration(prop, self)
+				res.push(wrapped)
+			end
+			self.cached_declarations = res
+		end
+		return self.cached_declarations.as(not null)
 	end
 
 	redef fun name do return classinfo.to_s
@@ -174,7 +188,6 @@ private class StdClass
 	redef fun supertypes
 	do
 		if cached_supertypes == null then
-			# TODO: refactor with `class_attributes`
 			var supertypes = self.classinfo.super_decls
 			var res = new Array[SuperTypeAttributeMirror]
 			for st in supertypes do
@@ -333,6 +346,11 @@ private class StdType
 
 	# TODO : remove this when cache is ready
 	redef fun ==(o) do return o isa SELF and o.type_info == type_info
+
+	redef fun name
+	do
+		return type_info.to_s
+	end
 end
 
 private class StdInstance
@@ -353,7 +371,7 @@ private class StdInstance
 	do
 		if cached_decl_properties == null then
 			var res = new Array[PropertyMirror]
-			for decl in klass.decls do
+			for decl in klass.declarations do
 				var object_prop = decl.bind(self)
 				res.add(object_prop)
 			end
@@ -404,6 +422,7 @@ private class StdAttribute
 	super AttributeMirror
 
 	redef type PROPINFO: AttributeInfo
+	private var cached_dyn_type: nullable TypeMirror = null
 
 	redef fun name
 	do
@@ -414,6 +433,18 @@ private class StdAttribute
 	redef fun get
 	do
 		return self.propinfo.value(recv.unwrap)
+	end
+
+	redef fun dyn_type
+	do
+		if self.cached_dyn_type == null then
+			var recv_type = recv.dyn_type
+			assert recv_type isa StdType
+			var dyntype = propinfo.dynamic_type(recv_type.type_info)
+			var res = mirror_repo.from_typeinfo(dyntype)
+			self.cached_dyn_type = res
+		end
+		return self.cached_dyn_type.as(not null)
 	end
 end
 

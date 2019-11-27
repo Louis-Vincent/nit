@@ -175,7 +175,7 @@ interface ClassMirror
 	fun arity: Int is abstract
 
 	# All local declarations.
-	fun decls: Collection[DeclarationMirror] is abstract
+	fun declarations: Collection[DeclarationMirror] is abstract
 
 	# Returns a type for this class. If `self` is generic then it
 	# returns a derived type whose type arguments are the bounds
@@ -274,6 +274,7 @@ interface InstanceMirror
 
 	fun klass: ClassMirror is abstract
 	fun dyn_type: TypeMirror is abstract
+
 	fun properties: Collection[PropertyMirror] is abstract
 
 	# Return the underlying reflected object.
