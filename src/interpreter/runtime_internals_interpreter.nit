@@ -608,7 +608,7 @@ class TypeInfo
 	protected fun native_equal(v: NaiveInterpreter, o: Instance): Instance
 	do
 		assert o isa TypeInfo
-		var res = self.reflectee == o.reflectee
+		var res = reflectee == o.reflectee and is_nullable == o.is_nullable
 		return v.bool_instance(res)
 	end
 
