@@ -45,39 +45,37 @@ redef class TypeInfo
 		if self.is_formal_type then return false
 		var res = true
 		for targ in type_arguments do
-			res = res and not targ.is_closed
+			res = res and targ.is_closed
 		end
 		return res
 	end
 
 	fun is_nullable: Bool
 	do
-		return self == self.as_nullable
+		return self.as_nullable == self
 	end
 end
 
 private class MirrorRepository
-	fun from_classinfo(classinfo: ClassInfo): StdClass
+	fun from_classinfo(classinfo: ClassInfo): ClassMirror
 	do
 		return new StdClass(classinfo)
 	end
 
-	fun from_typeinfo(typeinfo: TypeInfo): StdType
+	fun from_typeinfo(typeinfo: TypeInfo): TypeMirror
 	is
 		expect(typeinfo.is_closed)
 	do
 		var klass = self.from_classinfo(typeinfo.klass)
 		var res = new StdType(typeinfo, klass)
-		print 1
 		if typeinfo.is_nullable then
-			print 2
-			return res.as_nullable.as(StdType)
+			return res.as_nullable
 		end
 		return res
 	end
 end
 
-private class StdDeclaration
+private abstract class StdDeclaration
 	super DeclarationMirror
 
 	private type PROPINFO: PropertyInfo
@@ -88,6 +86,18 @@ private class StdDeclaration
 	redef fun is_private do abort #return propinfo.is_private
 	redef fun is_protected do abort #return propinfo.is_protected
 	redef fun klass do return my_klass
+
+	new(propinfo: PROPINFO, klass: ClassMirror)
+	do
+		if propinfo isa AttributeInfo then
+			return new StdAttributeDeclaration(propinfo, klass)
+		else if propinfo isa MethodInfo then
+			return new StdMethodDeclaration(propinfo, klass)
+		else
+			assert propinfo isa VirtualTypeInfo
+			return new StdVirtualTypeDeclaration(propinfo, klass)
+		end
+	end
 
 	redef fun into_property(class_itf)
 	do
@@ -227,7 +237,6 @@ private class StdClass
 			typeinfos.push(ty2.type_info)
 		end
 		var derived_type = self.classinfo.new_type(typeinfos)
-		print derived_type.to_s
 		var res = mirror_repo.from_typeinfo(derived_type)
 		return res
 	end
@@ -307,6 +316,7 @@ private class StdType
 
 	redef fun as_nullable
 	do
+		if type_info.is_nullable then return self
 		var nullabl = self.type_info.as_nullable
 		var res = mirror_repo.from_typeinfo(nullabl)
 		return res
@@ -405,20 +415,25 @@ private abstract class StdProperty
 	type PROPINFO : PropertyInfo
 
 	private var propinfo: PROPINFO
-	private var my_decl: DeclarationMirror
+	private var my_decl: DECLARATION
 	private var class_itf: ClassInterfaceMirror
 
 	new(propinfo: PropertyInfo, decl: DeclarationMirror, itf: ClassInterfaceMirror)
 	do
 		if propinfo isa AttributeInfo then
+			assert decl isa AttributeDeclaration
 			return new StdAttribute(propinfo, decl, itf)
 		else if propinfo isa MethodInfo then
+			assert decl isa MethodDeclaration
 			return new StdMethod(propinfo, decl, itf)
 		else
+			assert decl isa VirtualTypeDeclaration
 			assert propinfo isa VirtualTypeInfo
 			return new StdVirtualType(propinfo, decl, itf)
 		end
 	end
+
+	redef fun decl do return self.my_decl
 
 	redef fun recv
 	do
@@ -454,7 +469,7 @@ private class StdAttribute
 	redef fun dyn_type
 	do
 		if self.cached_dyn_type == null then
-			var recv_type = recv.dyn_type
+			var recv_type = class_itf.dyn_type
 			assert recv_type isa StdType
 			var dyntype = propinfo.dynamic_type(recv_type.type_info)
 			var res = mirror_repo.from_typeinfo(dyntype)
