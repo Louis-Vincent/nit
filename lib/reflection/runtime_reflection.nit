@@ -72,9 +72,7 @@ interface DeclarationMirror
 	fun is_protected: Bool is abstract
 	fun is_abstract: Bool is abstract
 
-	# Returns the associated `PropertyMirror` of an object, ie it returns
-	# a runtime version of `self`.
-	fun bind(im: InstanceMirror): PropertyMirror is abstract
+	fun into_property(class_itf: ClassInterfaceMirror): PropertyMirror is abstract
 
 	# The class where the declaration belongs
 	fun klass: ClassMirror is abstract
@@ -102,13 +100,19 @@ end
 interface PropertyMirror
 	super RuntimeEntity
 	type DECLARATION: DeclarationMirror
-	fun decl: DECLARATION is abstract
-	fun recv: InstanceMirror is abstract
-end
 
-interface TypedProperty
-	super PropertyMirror
-	fun dyn_type: TypeMirror is abstract
+	# Since `PropertyMirror` is a living entity at runtime, it must have some
+	# resolved type contextualizing the property. Otherwise, a property with no
+	# context is simply a declaration (static).
+	fun class_interface: ClassInterfaceMirror is abstract
+	fun decl: DECLARATION is abstract
+
+	# Returns true if `self` is contextualized by an object, ie if the property
+	# is bound to a receiver.
+	fun is_bound: Bool do return class_interface isa InstanceMirror
+
+	# Returns the instance holding that property.
+	fun recv: InstanceMirror is abstract, expect(is_bound)
 end
 
 interface MethodMirror
@@ -118,6 +122,12 @@ interface MethodMirror
 	fun return_type: nullable TypeMirror is abstract
 	fun is_callable_with(args: SequenceRead[nullable Object]): Bool is abstract
 	fun call(args: SequenceRead[nullable Object]): nullable Object is abstract
+end
+
+# Base class for all entity with a typed
+interface TypedProperty
+	super PropertyMirror
+	fun dyn_type: TypeMirror is abstract
 end
 
 interface AttributeMirror
@@ -225,60 +235,25 @@ interface ClassMirror
 	end
 end
 
-interface TypeMirror
+# Commun interface for `InstanceMirror` and `TypeMirror` since both describe
+# the interface of a class.
+interface ClassInterfaceMirror
 	super RuntimeEntity
 
 	fun klass: ClassMirror is abstract
 
-	fun typed_ancestors: SequenceRead[TypeMirror] is abstract
-
-	# Subtype testing, returns `true` is `self isa other`,
-	# otherwise false.
-	fun iza(other: TypeMirror): Bool is abstract
-
-	fun as_nullable: TypeMirror is abstract
-
-	fun is_nullable: Bool
-	do
-		return	self == self.as_nullable
-	end
-
-	fun as_not_null: TypeMirror is abstract
-
-	# Returns true if current args match the default init signature,
-	# otherwise false.
-	fun can_new_instance(args: SequenceRead[nullable Object]): Bool is abstract
-
-	# Command to instantiate a new object.
-	# `args` : arguments for the constructor.
-	fun new_instance(args: SequenceRead[nullable Object]): Object
-	is abstract, expect(self.can_new_instance(args))
-
-	fun type_arguments: SequenceRead[TypeMirror] is abstract
-
-	fun < (other: TypeMirror): Bool
-	do
-		return self != other and self.iza(other)
-	end
-
-	fun <= (other: TypeMirror): Bool
-	do
-		return self.iza(other)
-	end
-end
-
-# Base interface for all dynamic type living at runtime. A dynamic type is closed,
-# ie it has no static type like: generics, formal type, etc.
-interface InstanceMirror
-	super RuntimeEntity
-
-	fun klass: ClassMirror is abstract
+	# Which type is currently describing `klass`.
 	fun dyn_type: TypeMirror is abstract
 
-	fun properties: Collection[PropertyMirror] is abstract
-
-	# Return the underlying reflected object.
-	fun unwrap: Object is abstract
+	fun properties: Collection[PropertyMirror]
+	do
+		var res = new Array[PropertyMirror]
+		for decl in klass.declarations do
+			var subres = decl.into_property(self)
+			res.add(subres)
+		end
+		return res
+	end
 
 	fun all_attributes: SequenceRead[AttributeMirror]
 	do
@@ -395,4 +370,55 @@ interface InstanceMirror
 	do
 		return self.property(attribute_name).as(AttributeMirror)
 	end
+end
+
+interface TypeMirror
+	super ClassInterfaceMirror
+
+	redef fun dyn_type do return self
+
+	fun typed_ancestors: SequenceRead[TypeMirror] is abstract
+
+	# Subtype testing, returns `true` is `self isa other`,
+	# otherwise false.
+	fun iza(other: TypeMirror): Bool is abstract
+
+	fun as_nullable: TypeMirror is abstract
+
+	fun is_nullable: Bool
+	do
+		return	self == self.as_nullable
+	end
+
+	fun as_not_null: TypeMirror is abstract
+
+	# Returns true if current args match the default init signature,
+	# otherwise false.
+	fun can_new_instance(args: SequenceRead[nullable Object]): Bool is abstract
+
+	# Command to instantiate a new object.
+	# `args` : arguments for the constructor.
+	fun new_instance(args: SequenceRead[nullable Object]): Object
+	is abstract, expect(self.can_new_instance(args))
+
+	fun type_arguments: SequenceRead[TypeMirror] is abstract
+
+	fun < (other: TypeMirror): Bool
+	do
+		return self != other and self.iza(other)
+	end
+
+	fun <= (other: TypeMirror): Bool
+	do
+		return self.iza(other)
+	end
+end
+
+# Base interface for all dynamic type living at runtime. A dynamic type is closed,
+# ie it has no static type like: generics, formal type, etc.
+interface InstanceMirror
+	super ClassInterfaceMirror
+
+	# Return the underlying reflected object.
+	fun unwrap: Object is abstract
 end

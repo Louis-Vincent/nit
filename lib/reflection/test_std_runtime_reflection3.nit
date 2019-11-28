@@ -8,4 +8,4 @@ end
 var a = new A(1)
 
 var im = reflect(a)
-print im
+print im.all_attributes

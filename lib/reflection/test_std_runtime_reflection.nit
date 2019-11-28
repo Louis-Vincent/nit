@@ -17,14 +17,13 @@ module test_std_runtime_reflection
 import std_runtime_reflection
 
 class CommandParser
-	fun parse(input: String, command_type: Type): CLI
+	fun parse(input: String, command_type: TypeMirror): CLI
 	do
 		var ty = command_type
 		var tBool = get_type("Bool")
 		var tInt = get_type("Int")
 		var tString = get_type("String")
 		var tSeqRead = get_type("SequenceRead")
-
 		var re = "(-[a-zA-Z1-9]+|--[a-zA-Z1-9]+)( *[\.\/\\_\-~a-zA-Z1-9]*)*".to_re
 
 		var map = new HashMap[String, nullable String]
@@ -39,7 +38,7 @@ class CommandParser
 		end
 
 		var xs = new Array[nullable Object]
-		for attr in ty.declared_attributes do
+		for attr in ty.decl_attributes do
 			var my_type = attr.dyn_type
 			var is_optional = my_type.is_nullable
 			my_type = my_type.as_not_null

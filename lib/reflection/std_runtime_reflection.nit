@@ -32,8 +32,7 @@ redef class Sys
 
 	redef fun reflect(object)
 	do
-		var tm = typeof(object)
-		return new StdInstance(object, tm)
+		return new StdInstance(object)
 	end
 end
 
@@ -50,6 +49,11 @@ redef class TypeInfo
 		end
 		return res
 	end
+
+	fun is_nullable: Bool
+	do
+		return self == self.as_nullable
+	end
 end
 
 private class MirrorRepository
@@ -64,6 +68,11 @@ private class MirrorRepository
 	do
 		var klass = self.from_classinfo(typeinfo.klass)
 		var res = new StdType(typeinfo, klass)
+		print 1
+		if typeinfo.is_nullable then
+			print 2
+			return res.as_nullable.as(StdType)
+		end
 		return res
 	end
 end
@@ -80,9 +89,10 @@ private class StdDeclaration
 	redef fun is_protected do abort #return propinfo.is_protected
 	redef fun klass do return my_klass
 
-	redef fun bind(im)
+	redef fun into_property(class_itf)
 	do
-		return new StdProperty(propinfo, self, im)
+		var res = new StdProperty(propinfo, self, class_itf)
+		return res
 	end
 
 	redef fun name do return propinfo.name
@@ -138,7 +148,7 @@ private class StdClass
 			# we would need to support more constraint.
 			var bound = mirror_repo.from_typeinfo(tvar.bound)
 			var constraint = new SubtypeConstraint(bound)
-			var typeparam = new StdTypeParameter(self, constraint, i, tvar)
+			var typeparam = new StdTypeParameter(tvar, self, constraint, i)
 			res.push(typeparam)
 			i += 1
 		end
@@ -217,6 +227,7 @@ private class StdClass
 			typeinfos.push(ty2.type_info)
 		end
 		var derived_type = self.classinfo.new_type(typeinfos)
+		print derived_type.to_s
 		var res = mirror_repo.from_typeinfo(derived_type)
 		return res
 	end
@@ -251,11 +262,11 @@ end
 
 private class StdTypeParameter
 	super TypeParameter
+	super StdStaticType
 
 	private var belongs_to: ClassMirror
 	private var my_constraint: FormalTypeConstraint
 	private var my_rank: Int
-	private var typeinfo: TypeInfo
 
 	redef fun klass do return self.belongs_to
 	redef fun constraint do return self.my_constraint
@@ -356,9 +367,14 @@ end
 private class StdInstance
 	super InstanceMirror
 	private var instance: Object
-	private var tm: TypeMirror
+	private var tm: TypeMirror is noinit
 	private var cached_properties: nullable Collection[PropertyMirror] = null
 	private var cached_decl_properties: nullable Collection[PropertyMirror] = null
+
+	init
+	do
+		self.tm = typeof(instance)
+	end
 
 	redef fun to_s do return instance.to_s
 
@@ -370,12 +386,7 @@ private class StdInstance
 	redef fun properties
 	do
 		if cached_decl_properties == null then
-			var res = new Array[PropertyMirror]
-			for decl in klass.declarations do
-				var object_prop = decl.bind(self)
-				res.add(object_prop)
-			end
-			cached_decl_properties = res
+			cached_decl_properties = super
 		end
 		return cached_decl_properties.as(not null)
 	end
@@ -395,21 +406,26 @@ private abstract class StdProperty
 
 	private var propinfo: PROPINFO
 	private var my_decl: DeclarationMirror
-	private var my_recv: InstanceMirror
+	private var class_itf: ClassInterfaceMirror
 
-	new(propinfo: PropertyInfo, decl: DeclarationMirror, recv: InstanceMirror)
+	new(propinfo: PropertyInfo, decl: DeclarationMirror, itf: ClassInterfaceMirror)
 	do
 		if propinfo isa AttributeInfo then
-			return new StdAttribute(propinfo, decl, recv)
+			return new StdAttribute(propinfo, decl, itf)
 		else if propinfo isa MethodInfo then
-			return new StdMethod(propinfo, decl, recv)
+			return new StdMethod(propinfo, decl, itf)
 		else
 			assert propinfo isa VirtualTypeInfo
-			return new StdVirtualType(propinfo, decl, recv)
+			return new StdVirtualType(propinfo, decl, itf)
 		end
 	end
 
-	redef fun recv do return self.my_recv
+	redef fun recv
+	do
+		return self.class_itf.as(InstanceMirror)
+	end
+
+	redef fun class_interface do return self.class_itf
 
 	# TODO: remove this when cache is ready.
 	redef fun ==(o) do return o isa SELF and o.propinfo == propinfo
