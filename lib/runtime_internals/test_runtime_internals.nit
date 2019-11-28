@@ -317,3 +317,11 @@ var k2_super_decl = superdecls[1] # K2[E]
 # Type parameter must persist through super declarations.
 assert k2_super_decl.type_arguments[0] == first_tparam
 
+# Tests for nullable type
+
+print tZ1.as_nullable
+assert tZ1 != tZ1.as_nullable
+assert tZ1.as_nullable == tZ1.as_nullable
+
+print tE_Int_String.as_nullable
+assert tE_Int_String.as_nullable != tE_Int_String
