@@ -179,7 +179,7 @@ private class StdClass
 		return self.cached_declarations.as(not null)
 	end
 
-	redef fun name do return classinfo.to_s
+	redef fun name do return classinfo.name
 
 	redef fun arity
 	do
@@ -252,7 +252,7 @@ private class StdSuperType
 	private var typeinfo: TypeInfo
 	private var belongs_to: ClassMirror
 
-	redef fun name do return typeinfo.to_s
+	redef fun name do return typeinfo.name
 
 	redef fun klass do return self.belongs_to
 
@@ -264,7 +264,7 @@ private class StdStaticType
 	super StaticType
 	private var typeinfo: TypeInfo
 
-	redef fun name do return typeinfo.to_s
+	redef fun name do return typeinfo.name
 
 	redef fun ==(o) do return o isa SELF and o.typeinfo == typeinfo
 end
@@ -370,7 +370,7 @@ private class StdType
 
 	redef fun name
 	do
-		return type_info.to_s
+		return type_info.name
 	end
 end
 
@@ -471,7 +471,7 @@ private class StdAttribute
 		if self.cached_dyn_type == null then
 			var recv_type = class_itf.dyn_type
 			assert recv_type isa StdType
-			var dyntype = propinfo.dynamic_type(recv_type.type_info)
+			var dyntype = propinfo.dyn_type(recv_type.type_info)
 			var res = mirror_repo.from_typeinfo(dyntype)
 			self.cached_dyn_type = res
 		end
