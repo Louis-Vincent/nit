@@ -17,6 +17,15 @@ module test_runtime_internals
 import runtime_internals
 import test_runtime_internals_redefs
 
+redef class TypeInfo
+	# For test purposes
+	redef fun to_s do return name
+end
+redef class ClassInfo
+	# For test purposes
+	redef fun to_s do return name
+end
+
 interface A
 	fun p1: Int is abstract
 	fun p2: Int is abstract
@@ -224,7 +233,7 @@ assert p11 != p111
 assert p1 != p111
 
 var tE_Int_String = cE.new_type([tInt, tString])
-assert tE_Int_String.to_s == "E[Int, String]"
+assert tE_Int_String.name == "E[Int, String]"
 assert tE_Int_String.type_arguments.to_a == [tInt, tString]
 
 var d1 = new D(10, 100)
@@ -255,7 +264,7 @@ var tL = rti_repo.get_classinfo("L").as(not null).unbound_type
 var tJ = rti_repo.get_classinfo("J").as(not null).unbound_type
 var tJ1 = rti_repo.get_classinfo("J1").as(not null).unbound_type
 var tK_Int = cK.new_type([tInt])
-print tK_Int
+print tK_Int.name
 var attr_p1 = get_prop("_p1", cK)
 assert attr_p1 isa AttributeInfo
 
@@ -264,7 +273,7 @@ var y = x.as_nullable
 var z = cK.type_parameters[0].bound
 assert y == z
 var temp = attr_p1.klass.bound_type
-print attr_p1.dynamic_type(tK_Int)
+print attr_p1.dyn_type(tK_Int).name
 
 var b1 = tL.new_instance([1,10]).as(L)
 assert b1.z == 11
@@ -280,11 +289,11 @@ assert c3.z == 110
 
 for tp in cK.type_parameters do
 	assert tp.is_formal_type
-	print tp
+	print tp.name
 end
 
 var ancestors = cI.ancestors.to_a
-print "ancestors of `I`: {ancestors}"
+print "ancestors of I: {ancestors}"
 
 # Tests for `MethodInfo` queries
 var method_foo = get_prop("foo", cE).as(MethodInfo)
@@ -319,9 +328,9 @@ assert k2_super_decl.type_arguments[0] == first_tparam
 
 # Tests for nullable type
 
-print tZ1.as_nullable
+print tZ1.as_nullable.name
 assert tZ1 != tZ1.as_nullable
 assert tZ1.as_nullable == tZ1.as_nullable
 
-print tE_Int_String.as_nullable
+print tE_Int_String.as_nullable.name
 assert tE_Int_String.as_nullable != tE_Int_String

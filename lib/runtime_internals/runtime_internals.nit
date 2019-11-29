@@ -21,6 +21,7 @@ end
 
 # Base class of all runtime entities exposed by the API
 interface RuntimeInfo
+	fun name: String is abstract
 end
 
 universal ClassInfo
@@ -61,7 +62,7 @@ universal ClassInfo
 	do
 		return not is_abstract and not is_universal and not is_interface
 	end
-	redef fun to_s is intern
+	redef fun name is intern
 end
 
 universal TypeInfo
@@ -80,7 +81,8 @@ universal TypeInfo
 	fun type_arguments: SequenceRead[TypeInfo] is intern
 	fun iza(other: TypeInfo): Bool is intern
 	fun new_instance(args: Array[nullable Object]): Object is intern
-	redef fun to_s is intern
+
+	redef fun name is intern
 
 	redef fun ==(o) do return o isa SELF and native_equal(o)
 
@@ -91,6 +93,14 @@ interface PropertyInfo
 	super RuntimeInfo
 	# The class where the property has been introduced or redefined
 	fun klass: ClassInfo is intern
+
+	# Visibilities
+	fun is_public: Bool is intern
+	fun is_private: Bool is intern
+	fun is_protected: Bool is intern
+
+	# Qualifiers
+	fun is_abstract: Bool is intern
 
 	# Return true if `self` and `other` come from the same introduction.
 	fun equiv(other: SELF): Bool is intern do
@@ -111,10 +121,11 @@ interface PropertyInfo
 		return last1 == last2
 	end
 
-	fun name: String is intern
+	redef fun name: String is intern
 
 	# Returns an iterator that yields the next super property in the
 	# linearizatdyn_typeion order.
+	# TODO: might remove this function
 	fun get_linearization: Iterator[SELF] is intern
 end
 
@@ -125,7 +136,7 @@ universal AttributeInfo
 	# type (the receiver type most of the time). This function is useful if
 	# the attribute is typed by a type parameter. This function ensures the
 	# return `TypeInfo` is closed.
-	fun dynamic_type(recv_type: TypeInfo): TypeInfo
+	fun dyn_type(recv_type: TypeInfo): TypeInfo
 	is intern, expect(recv_type.iza(klass.bound_type))
 
 	# Returns the static type of the current attribute.
@@ -138,16 +149,26 @@ end
 
 universal MethodInfo
 	super PropertyInfo
-	# If `MethodInfo` is a function, then it returns the return static type,
-	# otherwise null.
+
+	# Returns the static return type of the underlying method. If the method
+	# is a procedure, then null is returned instead.
 	fun return_type: nullable TypeInfo is intern
+
 	# Returns the static type of each parameters
 	fun parameter_types: SequenceRead[TypeInfo] is intern
+
+	# Sends the message to `args[0]` (the receiver)
 	fun call(args: Array[nullable Object]): nullable Object is intern
 end
 
 universal VirtualTypeInfo
 	super PropertyInfo
+
+	# Returns the static type bound.
+	fun static_bound: TypeInfo is intern
+
+	# Returns the bound contextualized by a living type.
+	fun dyn_bound(recv_type: TypeInfo) is intern
 end
 
 # Entry point of the API.
