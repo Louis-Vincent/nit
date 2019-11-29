@@ -205,19 +205,20 @@ private class StdClass
 		return cached_type_param or else refresh_cache_type_param
 	end
 
-	redef fun supertypes
-	do
-		if cached_supertypes == null then
-			var supertypes = self.classinfo.super_decls
-			var res = new Array[SuperTypeAttributeMirror]
-			for st in supertypes do
-				var st2 = new StdSuperType(st, self)
-				res.add(st2)
-			end
-			cached_supertypes = res
-		end
-		return cached_supertypes.as(not null)
-	end
+	# FIXME: Weird design, see next FIXME
+	#redef fun supertypes
+	#do
+	#	if cached_supertypes == null then
+	#		var supertypes = self.classinfo.super_decls
+	#		var res = new Array[SuperTypeAttributeMirror]
+	#		for st in supertypes do
+	#			var st2 = new StdSuperType(st, self)
+	#			res.add(st2)
+	#		end
+	#		cached_supertypes = res
+	#	end
+	#	return cached_supertypes.as(not null)
+	#end
 
 	redef fun bound_type
 	do
@@ -246,19 +247,20 @@ private class StdClass
 	redef fun ==(o) do return o isa SELF and o.classinfo == classinfo
 end
 
-private class StdSuperType
-	super SuperTypeAttributeMirror
-
-	private var typeinfo: TypeInfo
-	private var belongs_to: ClassMirror
-
-	redef fun name do return typeinfo.name
-
-	redef fun klass do return self.belongs_to
-
-	# TODO
-	redef fun static_type do abort
-end
+# FIXME: Hard to design super type attributes, since they kinda live in both
+# static and dynamic worlds.
+#private class StdSuperType
+#	super SuperTypeAttributeMirror
+#
+#	private var typeinfo: TypeInfo
+#	private var belongs_to: ClassMirror
+#
+#	redef fun name do return typeinfo.name
+#
+#	redef fun klass do return self.belongs_to
+#	# TODO
+#	redef fun static_type do abort
+#end
 
 private class StdStaticType
 	super StaticType
