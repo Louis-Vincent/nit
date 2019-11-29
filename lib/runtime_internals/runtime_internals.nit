@@ -127,6 +127,17 @@ interface PropertyInfo
 	# linearizatdyn_typeion order.
 	# TODO: might remove this function
 	fun get_linearization: Iterator[SELF] is intern
+
+	fun is_proper_receiver(candidate: Object): Bool
+	do
+		var ty = rti_repo.object_type(candidate)
+		return is_proper_receiver_type(ty)
+	end
+
+	fun is_proper_receiver_type(candidate: TypeInfo): Bool
+	do
+		return candidate.iza(klass.bound_type)
+	end
 end
 
 universal AttributeInfo
@@ -137,14 +148,15 @@ universal AttributeInfo
 	# the attribute is typed by a type parameter. This function ensures the
 	# return `TypeInfo` is closed.
 	fun dyn_type(recv_type: TypeInfo): TypeInfo
-	is intern, expect(recv_type.iza(klass.bound_type))
+	is intern, expect(is_proper_receiver_type(recv_type))
 
 	# Returns the static type of the current attribute.
 	# This function is less safer than `type_info_wrecv` since it may
 	# return type parameter (aka open generic type).
 	fun static_type: TypeInfo is intern
 
-	fun value(object: Object): nullable Object is intern
+	fun value(object: Object): nullable Object
+	is intern, expect(is_proper_receiver(object))
 end
 
 universal MethodInfo
@@ -157,8 +169,15 @@ universal MethodInfo
 	# Returns the static type of each parameters
 	fun parameter_types: SequenceRead[TypeInfo] is intern
 
+	fun dyn_return_type(recv_type: TypeInfo): nullable TypeInfo
+	is intern, expect(is_proper_receiver_type(recv_type))
+
+	fun dyn_parameter_types(recv_type: TypeInfo): SequenceRead[TypeInfo]
+	is intern, expect(is_proper_receiver_type(recv_type))
+
 	# Sends the message to `args[0]` (the receiver)
-	fun call(args: Array[nullable Object]): nullable Object is intern
+	fun call(args: Array[nullable Object]): nullable Object
+	is intern, expect(is_proper_receiver(args[0].as(not null)))
 end
 
 universal VirtualTypeInfo
@@ -168,7 +187,8 @@ universal VirtualTypeInfo
 	fun static_bound: TypeInfo is intern
 
 	# Returns the bound contextualized by a living type.
-	fun dyn_bound(recv_type: TypeInfo) is intern
+	fun dyn_bound(recv_type: TypeInfo)
+	is intern, expect(is_proper_receiver_type(recv_type))
 end
 
 # Entry point of the API.
