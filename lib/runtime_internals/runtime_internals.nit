@@ -187,7 +187,7 @@ universal VirtualTypeInfo
 	fun static_bound: TypeInfo is intern
 
 	# Returns the bound contextualized by a living type.
-	fun dyn_bound(recv_type: TypeInfo)
+	fun dyn_bound(recv_type: TypeInfo): TypeInfo
 	is intern, expect(is_proper_receiver_type(recv_type))
 end
 
