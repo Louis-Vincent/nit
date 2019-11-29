@@ -895,9 +895,6 @@ class AttributeInfo
 		var typeinfo = recv.as(TypeInfo)
 		var anchor = typeinfo.reflectee.undecorate.as(MClassType)
 		assert not anchor.need_anchor
-		var mclass_intro = self.mpropdef.mclassdef.mclass.intro
-		var upper_bound = mclass_intro.bound_mtype
-		assert anchor.is_subtype(v.mainmodule, null, upper_bound)
 		var static_type = self.get_static_type(v).reflectee
 		var anchored_mtype = static_type.anchor_to(v.mainmodule, anchor)
 		return v.rti_repo.from_mtype(anchored_mtype)
@@ -923,11 +920,21 @@ class VirtualTypeInfo
 	do
 		if pname == "static_bound" then
 			out.ok = self.static_bound(v)
-			#else if pname == "dyn_bound" then
-			#out.ok = self.dyn_bound(v, args[1])
+		else if pname == "dyn_bound" then
+			out.ok = self.dyn_bound(v, args[1])
 		else
 			super
 		end
+	end
+
+	protected fun dyn_bound(v: NaiveInterpreter, anchor: Instance): TypeInfo
+	do
+		assert anchor isa TypeInfo
+		var mclass_type = anchor.reflectee.undecorate.as(MClassType)
+		var mtype = self.mpropdef.mproperty.mvirtualtype
+		var static_bound = mtype.static_bound(v.mainmodule)
+		var mtype2 = static_bound.anchor_to(v.mainmodule, mclass_type)
+		return v.rti_repo.from_mtype(mtype2)
 	end
 
 	protected fun static_bound(v: NaiveInterpreter): TypeInfo
