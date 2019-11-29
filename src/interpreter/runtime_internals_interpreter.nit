@@ -817,12 +817,44 @@ class MethodInfo
 			out.ok = self.parameter_types(v)
 		else if pname == "return_type" then
 			out.ok = self.return_type(v)
+		else if pname == "dyn_return_type" then
+			out.ok = self.dyn_return_type(v, args[1])
+		else if pname == "dyn_parameter_types" then
+			out.ok = self.dyn_parameter_types(v, args[1])
 		else
 			super
 		end
 	end
 
-	fun return_type(v: NaiveInterpreter): nullable Instance
+	protected fun dyn_parameter_types(v: NaiveInterpreter, recv_type: Instance): Instance
+	do
+		assert recv_type isa TypeInfo
+		var mmodule = v.mainmodule
+		var msignature = mpropdef.new_msignature or else mpropdef.msignature
+		var msignature2 = msignature.resolve_for(recv_type.reflectee, null, mmodule, true)
+		var res = new Array[TypeInfo]
+		for mparam in msignature2.mparameters do
+			var mtype = mparam.mtype
+			res.push(v.rti_repo.from_mtype(mtype))
+		end
+		return v.array_instance(res, v.type_type)
+	end
+
+	protected fun dyn_return_type(v: NaiveInterpreter, recv_type: Instance): nullable Instance
+	do
+		assert recv_type isa TypeInfo
+		var mmodule = v.mainmodule
+		var msignature = mpropdef.new_msignature or else mpropdef.msignature
+		var msignature2 = msignature.resolve_for(recv_type.reflectee, null, mmodule, true)
+		var ret = msignature2.return_mtype
+		if ret != null then
+			return v.rti_repo.from_mtype(ret)
+		else
+			return null
+		end
+	end
+
+	protected fun return_type(v: NaiveInterpreter): nullable Instance
 	do
 		var msignature = mpropdef.new_msignature or else mpropdef.msignature
 		var return_mtype = msignature.return_mtype

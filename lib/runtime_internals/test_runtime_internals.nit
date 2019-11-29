@@ -26,6 +26,11 @@ redef class ClassInfo
 	redef fun to_s do return name
 end
 
+redef class PropertyInfo
+	# For test purposes
+	redef fun to_s do return name
+end
+
 interface A
 	fun p1: Int is abstract
 	fun p2: Int is abstract
@@ -135,6 +140,10 @@ end
 
 class J2
 	super J
+end
+
+class Toto[E]
+	type MY_TYPE: E
 end
 
 fun get_prop(name: String, klass: ClassInfo): PropertyInfo
@@ -296,6 +305,7 @@ var ancestors = cI.ancestors.to_a
 print "ancestors of I: {ancestors}"
 
 # Tests for `MethodInfo` queries
+
 var method_foo = get_prop("foo", cE).as(MethodInfo)
 var method_bar = get_prop("bar", cE).as(MethodInfo)
 var method_baz = get_prop("baz", cE).as(MethodInfo)
@@ -309,6 +319,14 @@ print method_baz.parameter_types # [T2]
 print method_baz.return_type or else "" # D
 print method_bad.parameter_types # [D]
 print method_bad.return_type or else "" # [T1]
+
+print method_foo.dyn_return_type(tE_Int_String).as(not null) # String
+print method_bar.dyn_return_type(tE_Int_String).as(not null) # Int
+print method_baz.dyn_return_type(tE_Int_String).as(not null) # D
+
+print method_foo.dyn_parameter_types(tE_Int_String) # [Int]
+print method_bar.dyn_parameter_types(tE_Int_String) # [Int]
+print method_baz.dyn_parameter_types(tE_Int_String) # [String]
 
 # Tests for super declarations for `ClassInfo`
 
@@ -331,6 +349,17 @@ assert k2_super_decl.type_arguments[0] == first_tparam
 print tZ1.as_nullable.name
 assert tZ1 != tZ1.as_nullable
 assert tZ1.as_nullable == tZ1.as_nullable
+assert tZ1.as_nullable.iza(tZ1)
 
 print tE_Int_String.as_nullable.name
 assert tE_Int_String.as_nullable != tE_Int_String
+
+# Tests for virtual type property
+var cToto = rti_repo.get_classinfo("Toto").as(not null)
+var tToto_Int = cToto.new_type([tInt])
+var vtype = get_prop("MY_TYPE", cToto).as(VirtualTypeInfo)
+print vtype # MY_TYPE
+print vtype.static_bound # E
+print vtype.dyn_bound(tToto_Int) # Int
+print vtype.is_proper_receiver_type(tZ1) # false
+print vtype.is_proper_receiver_type(tToto_Int.as_nullable) # true
