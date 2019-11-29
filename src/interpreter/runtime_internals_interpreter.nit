@@ -389,8 +389,8 @@ class ClassInfo
 			out.ok = self.unbound_type(v)
 		else if pname == "ancestors" then
 			out.ok = self.ancestors(v)
-		else if pname == "to_s" then
-			out.ok = self.to_string(v)
+		else if pname == "name" then
+			out.ok = self.name(v)
 		else if pname == "new_type" then
 			out.ok = self.new_type(v, args[1])
 		else if pname == "type_parameters" then
@@ -434,7 +434,7 @@ class ClassInfo
 		return v.rti_repo.from_mtype(mtype)
 	end
 
-	protected fun to_string(v: NaiveInterpreter): Instance
+	protected fun name(v: NaiveInterpreter): Instance
 	do
 		return v.string_instance(self.reflectee.name)
 	end
@@ -566,8 +566,8 @@ class TypeInfo
 
 	redef fun dispatch(v, pname, args, out)
 	do
-		if pname == "to_s" then
-			out.ok = self.to_string(v)
+		if pname == "name" then
+			out.ok = self.name(v)
 		else if pname == "is_generic" then
 			out.ok = self.is_generic(v)
 		else if pname == "is_interface" then
@@ -695,7 +695,7 @@ class TypeInfo
 		return v.rti_repo.as_nullable(self)
 	end
 
-	protected fun to_string(v: NaiveInterpreter): Instance
+	protected fun name(v: NaiveInterpreter): Instance
 	do
 		var res: Instance
 		if self.is_nullable then
@@ -874,8 +874,8 @@ class AttributeInfo
 	do
 		if pname == "static_type" then
 			out.ok = self.get_static_type(v)
-		else if pname == "dynamic_type" then
-			out.ok = self.dynamic_type(v, args[1])
+		else if pname == "dyn_type" then
+			out.ok = self.dyn_type(v, args[1])
 		else if pname == "value" then
 			out.ok = self.value(v, args[1])
 		else
@@ -888,7 +888,7 @@ class AttributeInfo
 		return v.read_attribute(self.mpropdef.mproperty, recv)
 	end
 
-	protected fun dynamic_type(v: NaiveInterpreter, recv: Instance): TypeInfo
+	protected fun dyn_type(v: NaiveInterpreter, recv: Instance): TypeInfo
 	is
 		expect(recv isa TypeInfo)
 	do
@@ -918,6 +918,27 @@ end
 
 class VirtualTypeInfo
 	super PropertyInfo
+	redef type MPROPDEF: MVirtualTypeDef
+	redef fun dispatch(v, pname, args, out)
+	do
+		if pname == "static_bound" then
+			out.ok = self.static_bound(v)
+			#else if pname == "dyn_bound" then
+			#out.ok = self.dyn_bound(v, args[1])
+		else
+			super
+		end
+	end
+
+	protected fun static_bound(v: NaiveInterpreter): TypeInfo
+	do
+		# NOTE: In this current module, `MVirtualType` is refined to
+		# find the most specific static bound. This is why we don't
+		# use `MVirtualTypeDef::bound`.
+		var mtype = self.mpropdef.mproperty.mvirtualtype
+		var static_bound = mtype.static_bound(v.mainmodule)
+		return v.rti_repo.from_mtype(static_bound)
+	end
 end
 
 # Wrapper class
