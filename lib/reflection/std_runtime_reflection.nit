@@ -2,8 +2,6 @@ import runtime_reflection
 import runtime_internals
 
 redef class Sys
-	super Environment
-
 	private var mirror_repo = new MirrorRepository
 
 	redef fun class_exist(classname)
@@ -11,8 +9,9 @@ redef class Sys
 		return self.rti_repo.get_classinfo(classname) != null
 	end
 
-	fun get_type(typename: String): TypeMirror
+	redef fun get_type(typename: String)
 	do
+		# TODO: handle derived types
 		var klass = get_class(typename)
 		return klass.bound_type
 	end

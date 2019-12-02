@@ -21,7 +21,7 @@ end
 fun to_json(object: Object): String
 do
 	var im = reflect(object)
-	var text_ty = get_type("Text")
+	var text_ty = t"Text"
 	var strings = new Array[String]
 	for attr in im.all_attributes do
 		var attr_ty = attr.dyn_type

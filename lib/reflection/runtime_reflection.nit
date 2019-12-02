@@ -59,9 +59,15 @@ interface Environment
 	fun get_class(classname: String): ClassMirror
 	is abstract, expect(class_exist(classname))
 
+	fun get_type(typename: String): TypeMirror is abstract
+
 	fun typeof(object: INSPECTABLE): TypeMirror is abstract
 
 	fun reflect(object: Object): InstanceMirror is abstract
+end
+
+redef class Sys
+	super Environment
 end
 
 # Static declaration info of a class property.

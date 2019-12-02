@@ -169,6 +169,12 @@ class AugmentedStringFormExpr
 	# Is `self` a Regular Expression ?
 	fun is_re: Bool do return prefix == "re"
 
+	# Is `self` a `ClassMirror` Expression ?
+	fun is_class: Bool do return prefix == "c"
+
+	# Is `self` a `TypeMirror` Expression ?
+	fun is_type: Bool do return prefix == "t"
+
 	# Is `self` a Byte String ?
 	fun is_bytestring: Bool do return prefix == "b"
 
@@ -185,6 +191,8 @@ class AugmentedStringFormExpr
 			end
 			return true
 		end
+		if is_class and suffix == "" then return true
+		if is_type and suffix == "" then return true
 		if prefix != "" or suffix != "" then return false
 		return true
 	end

@@ -158,6 +158,21 @@ redef class NaiveInterpreter
 	end
 end
 
+redef class AStringExpr
+	redef fun expr(v)
+	do
+		if is_class or is_type then
+			var mainobj = v.mainobj.as(not null)
+			var callsite = if is_class then to_classmirror else to_typemirror
+			var class_or_type_name = v.string_instance(self.value)
+			var res = v.callsite(callsite, [mainobj, class_or_type_name])
+			return res
+		else
+			return super
+		end
+	end
+end
+
 class RuntimeInternalsRepo
 	protected var model: Model
 	protected var cached_type = new HashMap[MType, TypeInfo]

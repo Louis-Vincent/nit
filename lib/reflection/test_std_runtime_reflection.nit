@@ -20,10 +20,10 @@ class CommandParser
 	fun parse(input: String, command_type: TypeMirror): CLI
 	do
 		var ty = command_type
-		var tBool = get_type("Bool")
-		var tInt = get_type("Int")
-		var tString = get_type("String")
-		var tSeqRead = get_type("SequenceRead")
+		var tBool = t"Bool"
+		var tInt = t"Int"
+		var tString = t"String"
+		var tSeqRead = t"SequenceRead"
 		var re = "(-[a-zA-Z1-9]+|--[a-zA-Z1-9]+)( *[\.\/\\_\-~a-zA-Z1-9]*)*".to_re
 
 		var map = new HashMap[String, nullable String]

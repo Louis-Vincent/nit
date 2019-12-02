@@ -1621,6 +1621,10 @@ redef class AugmentedStringFormExpr
 	var extended: nullable CallSite = null
 	# CString::to_bytes_with_copy, used for prefix `b`
 	var to_bytes_with_copy: nullable CallSite = null
+	# `Sys::get_class`, used to reflect the class `classname`
+	var to_classmirror: nullable CallSite = null
+	# `Sys::get_type`, used to reflect the type `typename`
+	var to_typemirror: nullable CallSite = null
 
 	redef fun accept_typing(v) do
 		var mclass = v.get_mclass(self, "String")
@@ -1651,6 +1655,16 @@ redef class AugmentedStringFormExpr
 					abort
 				end
 			end
+		else if is_class then
+			# The mirror factory resides in `Sys` class.
+			var sysclass = v.get_mclass(self, "Sys")
+			mclass = v.get_mclass(self, "ClassMirror")
+			self.to_classmirror = v.build_callsite_by_name(self, sysclass.mclass_type, "get_class", false)
+		else if is_type then
+			# The mirror factory resides in `Sys` class.
+			var sysclass = v.get_mclass(self, "Sys")
+			mclass = v.get_mclass(self, "TypeMirror")
+			self.to_typemirror = v.build_callsite_by_name(self, sysclass.mclass_type, "get_type", false)
 		end
 		if mclass == null then return # Forward error
 		mtype = mclass.mclass_type
