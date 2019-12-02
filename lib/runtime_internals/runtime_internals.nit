@@ -58,10 +58,17 @@ universal ClassInfo
 	fun is_abstract: Bool is intern
 	fun is_universal: Bool is intern
 	fun type_parameters: SequenceRead[TypeInfo] is intern
+
 	fun is_stdclass: Bool
 	do
 		return not is_abstract and not is_universal and not is_interface
 	end
+
+	fun is_generic: Bool
+	do
+		return type_parameters.length > 0
+	end
+
 	redef fun name is intern
 end
 
@@ -72,14 +79,36 @@ universal TypeInfo
 
 	# Represents a type variable
 	fun is_formal_type: Bool is intern
+
 	fun as_not_null: TypeInfo is intern
+
 	fun as_nullable: TypeInfo is intern
 
 	# The bound (might be F-bounded) of a formal type
 	fun bound: TypeInfo is intern, expect(is_formal_type)
 
 	fun type_arguments: SequenceRead[TypeInfo] is intern
+
+	# Determines if `self` isa `other`, ie if `self` is a subtype of `other`.
+	#
+	# ~~~nitish
+	# class A
+	# end
+	#
+	# class B
+	#	super B
+	# end
+	#
+	# var a = new A
+	# var b = new B
+	# var at = object_type(a)
+	# var bt = object_type(b)
+	#
+	# assert bt.iza(at)
+	# assert bt.iza(at)
+	# ~~~
 	fun iza(other: TypeInfo): Bool is intern
+
 	fun new_instance(args: Array[nullable Object]): Object is intern
 
 	redef fun name is intern
@@ -101,6 +130,8 @@ interface PropertyInfo
 
 	# Qualifiers
 	fun is_abstract: Bool is intern
+	fun is_intern: Bool is intern
+	fun is_extern: Bool is intern
 
 	# Return true if `self` and `other` come from the same introduction.
 	fun equiv(other: SELF): Bool is intern do
