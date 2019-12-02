@@ -71,6 +71,8 @@ interface DeclarationMirror
 	fun is_private: Bool is abstract
 	fun is_protected: Bool is abstract
 	fun is_abstract: Bool is abstract
+	fun is_intern: Bool is abstract
+	fun is_extern: Bool is abstract
 
 	fun into_property(class_itf: ClassInterfaceMirror): PropertyMirror is abstract
 
@@ -226,7 +228,7 @@ interface ClassMirror
 
 	fun < (other: ClassMirror): Bool
 	do
-		return ancestors.has(other)
+		return ancestors.has(other) and self != other
 	end
 
 	fun <= (other: ClassMirror): Bool

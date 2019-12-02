@@ -82,9 +82,13 @@ private abstract class StdDeclaration
 	private var propinfo: PROPINFO
 	private var my_klass: ClassMirror
 
-	redef fun is_public do abort #return propinfo.is_public
-	redef fun is_private do abort #return propinfo.is_private
-	redef fun is_protected do abort #return propinfo.is_protected
+	redef fun is_public do return propinfo.is_public
+	redef fun is_private do return propinfo.is_private
+	redef fun is_protected do return propinfo.is_protected
+	redef fun is_abstract do return propinfo.is_abstract
+	redef fun is_intern do return propinfo.is_intern
+	redef fun is_extern do return propinfo.is_extern
+
 	redef fun klass do return my_klass
 
 	new(propinfo: PROPINFO, klass: ClassMirror)

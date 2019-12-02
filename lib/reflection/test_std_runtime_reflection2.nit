@@ -54,7 +54,5 @@ var c1 = new C(2, 4, "c1")
 a1.b1 = b1
 a1.b2 = b2
 print to_json(a1)
-#print ""
-#print to_json(a2)
-#print ""
-#print to_json(c1)
+print to_json(a2)
+print to_json(c1)
