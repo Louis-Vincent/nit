@@ -769,9 +769,60 @@ abstract class PropertyInfo
 			out.ok = self.name(v)
 		else if pname == "get_linearization" then
 			out.ok = self.get_linearization(v)
+		else if pname == "is_public" then
+			out.ok = self.is_public(v)
+		else if pname == "is_private" then
+			out.ok = self.is_private(v)
+		else if pname == "is_protected" then
+			out.ok = self.is_protected(v)
+		else if pname == "is_abstract" then
+			out.ok = self.is_abstract(v)
+		else if pname == "is_intern" then
+			out.ok = self.is_intern(v)
+		else if pname == "is_extern" then
+			out.ok = self.is_extern(v)
 		else if pname == "klass" then
 			out.ok = self.klass(v)
 		end
+	end
+
+	protected fun is_public(v: NaiveInterpreter): Instance
+	do
+		var res = self.mpropdef.visibility == public_visibility
+		return v.bool_instance(res)
+	end
+
+	protected fun is_private(v: NaiveInterpreter): Instance
+	do
+		var res = self.mpropdef.visibility == private_visibility
+		return v.bool_instance(res)
+	end
+
+	protected fun is_protected(v: NaiveInterpreter): Instance
+	do
+		var res = self.mpropdef.visibility == protected_visibility
+		return v.bool_instance(res)
+	end
+
+	protected fun is_abstract(v: NaiveInterpreter): Instance
+	do
+		var mpropdef = self.mpropdef
+		var res = mpropdef isa MMethodDef and mpropdef.is_abstract
+		return v.bool_instance(res)
+	end
+
+	protected fun is_intern(v: NaiveInterpreter): Instance
+	do
+		var mpropdef = self.mpropdef
+		var res = mpropdef isa MMethodDef and mpropdef.is_intern
+		return v.bool_instance(res)
+	end
+
+	protected fun is_extern(v: NaiveInterpreter): Instance
+	do
+		var mpropdef = self.mpropdef
+		var res = mpropdef isa MMethodDef and mpropdef.is_extern
+		return v.bool_instance(res)
 	end
 
 	protected fun name(v: NaiveInterpreter): Instance

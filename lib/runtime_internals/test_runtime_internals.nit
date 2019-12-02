@@ -51,7 +51,6 @@ class D
 end
 
 class E[T1,T2]
-
 	fun foo(x: T1): T2 is abstract
 	fun bar(x: Int): Int is abstract
 	fun baz(x: T2): D is abstract
@@ -59,8 +58,26 @@ class E[T1,T2]
 end
 
 class F
+	# For visibility + qualifier tests
+	var fattr1 = 1
+	protected var fattr2 = 2
+	private var fattr3 = 3
+
+	fun ffun1 do print 1
+	protected fun ffun2 do print 2
+	private fun ffun3 do print 3
+	fun ffun4 is abstract
+	private fun ffun5 is intern
+
+	# End of visibility + qualifier tests
+
 	fun p1 do print 1
 end
+
+redef class Int
+	fun next `{ return recv + 1 `}
+end
+
 class G
 	super F
 	redef fun p1
@@ -363,3 +380,43 @@ print vtype.static_bound # E
 print vtype.dyn_bound(tToto_Int) # Int
 print vtype.is_proper_receiver_type(tZ1) # false
 print vtype.is_proper_receiver_type(tToto_Int.as_nullable) # true
+
+# Tests for visibility
+
+var fattr1 = get_prop("fattr1", cF)
+assert fattr1.is_public
+assert not fattr1.is_private
+assert not fattr1.is_protected
+assert not fattr1.is_abstract
+
+var fattr2 = get_prop("fattr2", cF)
+assert fattr2.is_protected
+assert not fattr2.is_public
+
+var fattr3 = get_prop("fattr3", cF)
+assert fattr3.is_private
+assert not fattr3.is_public
+assert not fattr3.is_protected
+
+var ffun3 = get_prop("ffun3", cF)
+assert ffun3.is_private
+assert not ffun3.is_public
+
+# Tests for method qualifier
+
+var ffun4 = get_prop("ffun4", cF)
+assert ffun4.is_public
+assert ffun4.is_abstract
+assert not ffun4.is_extern
+assert not ffun4.is_intern
+
+var ffun5 = get_prop("ffun5", cF)
+assert ffun5.is_private
+assert ffun5.is_intern
+assert not ffun5.is_abstract
+assert not ffun5.is_extern
+
+var cInt = rti_repo.get_classinfo("Int").as(not null)
+var next = get_prop("next", cInt)
+assert next.is_public
+assert next.is_extern
