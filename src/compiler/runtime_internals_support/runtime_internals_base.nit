@@ -35,9 +35,33 @@ interface RuntimeInternalsFactory
 	is abstract
 end
 
+#class NullRuntimeInternals
+#	super RuntimeInternalsFactory
+#
+#	fun model_saver(compiler) do abort
+#
+#	# Returns an object capable of compiling a `TypeInfo` enum class.
+#	fun type_info_def(v) do abort
+#
+#	# Returns an object capable of compiling a `ClassInfo` enum class.
+#	fun class_info_def(v) do abort
+#
+#	# Returns an object capable of compiling a `AttributeInfo` enum class.
+#	fun attr_info_def(v) do abort
+#
+#	# Returns an object capable of compiling a `MethodInfo` enum class.
+#	fun method_info_def(v) do abort
+#
+#	# Returns an object capable of compiling a `VirtualTypeInfo` enum class.
+#	fun vtype_info_def(v) do abort
+#
+#	# Returns an object capable of compiling a `RuntimeInternalRepo` enum class.
+#	fun runtime_internals_def(v) do abort
+#end
+
 # Base class for all model persistor.
 interface ModelSaver
-	fun save_model(model: Model) is abstract
+	fun save_model is abstract
 end
 
 # Base class for all `TypeInfo` implementations.

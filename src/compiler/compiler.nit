@@ -15,6 +15,7 @@
 # Compilation to C
 module compiler
 
+import separate_meta_compiler
 import separate_erasure_compiler
 import global_compiler
 import compiler_ffi

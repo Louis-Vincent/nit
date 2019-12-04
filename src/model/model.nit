@@ -597,7 +597,7 @@ class MClass
 		return res
 	end
 
-	private var get_mtype_cache = new HashMap[Array[MType], MGenericType]
+	protected var get_mtype_cache = new HashMap[Array[MType], MGenericType]
 
 	# Is there a `new` factory to allow the pseudo instantiation?
 	var has_new_factory = false is writable
@@ -623,7 +623,6 @@ class MClass
 		return intro.mdoc
 	end
 end
-
 
 # A definition (an introduction or a refinement) of a class in a module
 #
@@ -1184,7 +1183,6 @@ abstract class MType
 	fun as_notnull: MType do return self
 
 	private var as_nullable_cache: nullable MType = null
-
 
 	# The depth of the type seen as a tree.
 	#
