@@ -15,7 +15,6 @@ end
 class DefaultModelSaver
 	super ModelSaver
 	protected var compiler: SeparateCompiler
-	protected var metatag_resolver = new MetaTagResolver
 
 	redef fun save_model
 	do
@@ -24,7 +23,8 @@ class DefaultModelSaver
 		compile_metainfo_header_structs
 		self.compiler.new_file("{c_name}.metadata")
 		for mclass in model.mclasses do
-			save_class(mclass)
+			var v = compiler.new_visitor
+			mclass.save(v)
 		end
 	end
 
@@ -106,13 +106,6 @@ const struct instance_TypeInfo* type_arguments[];
 """)
 	end
 
-	protected fun save_class(mclass: MClass)
-	do
-		var v = compiler.new_visitor
-		var c_name = mclass.c_name
-		var decl = "const struct instance_ClassInfo class_info_{c_name}"
-		v.provide_declaration("class_info_{c_name}", "{decl};")
-	end
 end
 
 # Each internal structure that represent a metainformation
@@ -170,7 +163,7 @@ end
 abstract class SavableMEntity
 	var is_saved: Bool is protected writable
 	fun c_meta_declaration: String is abstract
-	fun compile_metatag_to_c(: AbstractCompilerVisitor) is abstract
+	fun compile_metatag_to_c(v: AbstractCompilerVisitor) is abstract
 	fun save(v: AbstractCompilerVisitor): nullable CompilationDependency is abstract
 end
 
@@ -190,31 +183,39 @@ class AggregateDependencies
 				return false
 			end
 		end
+		# If there's no dependency then it is out of date.
 		return true
 	end
 
 	redef fun resolve_dependency(v)
 	do
 		if is_out_of_date then return null
-		var new_deps = new Array[CompilationDependency]
+		var aggregate = new AggregateDependencies
 		for dep in dependencies do
 			if dep.is_out_of_date then continue
 			var new_dep = dep.resolve_dependency(v)
 			if new_dep != null then
-				new_deps.push(new_dep)
+				aggregate.add(new_dep)
 			end
 		end
-		if new_deps.is_empty then
+		if aggregate.is_out_of_date then
 			return null
 		else
-			return new_deps
+			return aggregate
 		end
+	end
+
+	fun add(dep: CompilationDependency)
+	is
+		expect(not dep.is_out_of_date)
+	do
+		dependencies.add(dep)
 	end
 end
 
 redef class MType
 	super SavableMEntity
-	redef fun commun_metatag: Int
+	fun commun_metatag: Int
 	do
 		var tag = 0
 		var metakind = 1
@@ -236,6 +237,7 @@ redef class MClassType
 		if self.need_anchor then kind = 1
 		tag = tag | (kind << 3)
 		tag = tag | (arguments.length << 5)
+		return tag
 	end
 end
 
@@ -268,12 +270,13 @@ redef class MClass
 
 	redef fun save(v)
 	do
-		var mmodule = v.compiler.mainmodule
-		var model = v.compiler.modelbuilder.model
+		var compiler = v.compiler
+		var mmodule = compiler.mainmodule
+		var model = compiler.modelbuilder.model
 		var classinfo = model.get_mclasses_by_name("ClassInfo")?.first
 		assert classinfo != null
 		var c_name = classinfo.c_name
-		var mprops = mclass.collect_accessible_mproperties(mmodule, null)
+		var mprops = self.collect_accessible_mproperties(mmodule, null)
 		var mtypes = self.get_mtype_cache.values
 
 		# Some prerequisite
@@ -292,7 +295,7 @@ redef class MClass
 		end
 
 		# Then new declaration
-		v.provide_declaration("instance_ClassInfo_{c_name}", "{c_meta_declaration};")
+		compiler.provide_declaration("instance_ClassInfo_{self.c_name}", "{c_meta_declaration};")
 
 		# The instance
 		v.add_decl("{c_meta_declaration} \{")
@@ -311,13 +314,37 @@ redef class MClass
 		v.add_decl("&class_{self.c_name};") # pointer to the reflected class
 		v.add_decl("{c_name}") # name of the reflected class
 
-		for mprop in mprops do
-			var mprop_decl = mprop.c_meta_declaration
-			v.require_declaration("{mprop_decl},")
-			v.add_decl("(propinfo_t*)&{mprop_decl},")
+		var mpropdefs = most_specific_mpropdefs(mmodule)
+
+		for mpropdef in mpropdefs do
+			var mpropdef_decl = mpropdef.c_meta_declaration
+			v.require_declaration("{mpropdef_decl},")
+			v.add_decl("(propinfo_t*)&{mpropdef_decl},")
 		end
 		v.add_decl("\}")
 		self.is_saved = true
+
+		# TODO: return dependencies
+		return null
+	end
+
+	fun most_specific_mpropdefs(mmodule: MModule): Collection[MPropDef]
+	do
+		var mprops = self.collect_accessible_mproperties(mmodule)
+		# Cache our properties
+		var res = new Array[MPropDef]
+		for mprop in mprops do
+			# Get the most specific implementation
+			var mtype = self.mclass_type
+			# First, we need to make sure mtype doesn't need an anchor,
+			# otherwise we can't call `lookup_first_definition`.
+			if mtype.need_anchor then
+				mtype = self.intro.bound_mtype
+			end
+			var mpropdef = mprop.lookup_first_definition(mmodule, mtype)
+			res.push(mpropdef)
+		end
+		return res
 	end
 
 	redef fun compile_metatag_to_c(v: AbstractCompilerVisitor)
@@ -325,10 +352,10 @@ redef class MClass
 		var tag = 0x00000000
 		var metakind = 0 # it's a class kind, nothing to do
 		var mmodule = v.compiler.mainmodule
-		var arity = mclass.mparameters.length
-		var mproperties = mclass.collect_accessible_mproperties(mmodule, null)
-		var kind = classkind_to_int(mclass.kind)
-		var visibility = visiblity_to_int(mclass.visibility)
+		var arity = self.mparameters.length
+		var mproperties = self.collect_accessible_mproperties(mmodule, null)
+		var kind = classkind_to_int(self.kind)
+		var visibility = visibility_to_int(self.visibility)
 		tag = tag | metakind # 3 bits
 		tag = tag | (arity << 3) # 7 bits => 3 + 7 = 10
 		tag = tag | (kind << 10) # 3 bits => 10 + 3 + 13
@@ -338,34 +365,32 @@ redef class MClass
 	end
 end
 
-redef class MProperty
+redef class MPropDef
 	super SavableMEntity
 
 	fun commun_metatag: Int
 	do
 		var tag = 0x00000000
 		var metakind = 0 # we don't know yet
-		var visibility = visibility_to_int(mproperty.visibility)
+		var visibility = visibility_to_int(self.visibility)
 		var qualifier =  0
-		if mproperty.is_abstract then qualifier = 1
-		if mproperty.is_intern then qualifier = 2
-		if mproperty.is_extern the qualifier = 3
 
 		tag = tag | metakind
-		tag = tag | (visiblity << 3)
+		tag = tag | (visibility << 3)
 		tag = tag | (qualifier << 5)
 		return tag
 	end
 end
 
-redef class MAttribute
+redef class MAttributeDef
 
-	fun mclass do return self.intro_mclassdef.mclass
+	fun mclass: MClass do return mproperty.intro_mclassdef.mclass
 
 	redef fun save(v)
 	do
-		v.require_declaration(mclass.c_meta_declaration)
-		v.provide_declaration(c_meta_declaration)
+		#v.require_declaration(mclass.c_meta_declaration)
+		#v.compiler.provide_declaration(c_meta_declaration)
+		return null
 	end
 
 	redef fun c_meta_declaration
@@ -383,11 +408,11 @@ redef class MAttribute
 	end
 end
 
-redef class MMethod
+redef class MMethodDef
 
 	redef fun c_meta_declaration
 	do
-		var mclass = self.intro_mclassdef.mclass
+		var mclass = mproperty.intro_mclassdef.mclass
 		# FIXME: check for better naming convention
 		return "instance_MethodInfo_{mclass.c_name}_{self.name}"
 	end
@@ -395,9 +420,15 @@ redef class MMethod
 	redef fun compile_metatag_to_c(v)
 	do
 		var tag = self.commun_metatag
+		var qualifier = 0
+		# TODO:
+		if self.is_abstract then qualifier = 1
+		if self.is_intern then qualifier = 2
+		if self.is_extern then qualifier = 3
+		tag = tag | (qualifier << 5)
+
 		var metakind = 3
-		var intro = mmethod.mpropdefs.first
-		var msignature = intro.msignature
+		var msignature = self.msignature
 		var arity = 0
 		var has_return = if msignature?.return_mtype != null then 1 else 0
 		if msignature != null then
@@ -411,11 +442,11 @@ redef class MMethod
 	end
 end
 
-redef class MVirtualTypeProp
+redef class MVirtualTypeDef
 
 	redef fun c_meta_declaration
 	do
-		var mclass = self.intro_mclassdef.mclass
+		var mclass = self.mproperty.intro_mclassdef.mclass
 		# FIXME: check for better naming convention
 		return "instance_VirtualTypeInfo_{mclass.c_name}_{self.name}"
 	end
@@ -431,17 +462,19 @@ end
 
 private fun visibility_to_int(visibility: MVisibility): Int
 do
-	if visibility == public_visibility return 0
-	if visibility == protected_visibility return 1
-	if visibility == private_visibility return 2
+	if visibility == public_visibility then return 0
+	if visibility == protected_visibility then return 1
+	if visibility == private_visibility then return 2
+	abort
 end
 
 private fun classkind_to_int(kind: MClassKind): Int
 do
-	if kind == concrete_kind return 0
-	if kind == abstract_kind return 1
-	if kind == interface_kind return 2
-	if kind == enum_kind return 3
-	if kind == extern_kind return 4
-	if kind == subset_kind return 5
+	if kind == concrete_kind then return 0
+	if kind == abstract_kind then return 1
+	if kind == interface_kind then return 2
+	if kind == enum_kind then return 3
+	if kind == extern_kind then return 4
+	if kind == subset_kind then return 5
+	abort
 end
