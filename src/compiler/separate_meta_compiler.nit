@@ -49,12 +49,41 @@ end
 class SeparateMetaCompiler
 	super SeparateCompiler
 	private var rti: RuntimeInternalsFactory
+	private var mcp: MetaCStructProvider is noinit
 
-	redef fun do_compilation
+	init
 	do
+		mcp = rti.meta_cstruct_provider(self)
+	end
+
+	redef fun compile_header_structs do
 		super
-		var mainmodule = self.mainmodule
-		var model_saver = self.rti.model_saver(self)
-		model_saver.save_model
+		mcp.compile_commun_meta_header_structs
+	end
+
+	redef fun compile_class_if_universal(ccinfo, v)
+	do
+		var res = super
+		if res then return res
+
+		var mclass = ccinfo.mclass
+
+		res = true
+
+		if mclass.name == "ClassInfo" then
+			mcp.compile_classinfo_header_struct
+		else if mclass.name == "TypeInfo" then
+			mcp.compile_typeinfo_header_struct
+		else if mclass.name == "AttributeInfo" then
+			mcp.compile_attributeinfo_header_struct
+		else if mclass.name == "MethodInfo" then
+			mcp.compile_methodinfo_header_struct
+		else if mclass.name == "VirtualTypeInfo" then
+			mcp.compile_vtypeinfo_header_struct
+		else
+			res = false
+		end
+
+		return res
 	end
 end

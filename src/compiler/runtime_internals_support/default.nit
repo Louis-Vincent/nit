@@ -6,32 +6,117 @@ private import model::model_collect
 
 class DefaultRuntimeInternals
 	super RuntimeInternalsFactory
-	redef fun model_saver(compiler)
+	redef fun meta_cstruct_provider(compiler)
 	do
-		return new DefaultModelSaver(compiler)
+		return new DefaultCStructProvider(compiler)
 	end
 end
 
-class DefaultModelSaver
-	super ModelSaver
-	protected var compiler: SeparateCompiler
+class DefaultCStructProvider
+	super MetaCStructProvider
 
-	redef fun save_model
-	do
-		var model = mmodule.model
-		var c_name = mmodule.c_name
-		compile_metainfo_header_structs
-		self.compiler.new_file("{c_name}.metadata")
-		for mclass in model.mclasses do
-			var v = compiler.new_visitor
-			mclass.save(v)
-		end
-	end
+	protected var compiler: AbstractCompiler
 
 	protected fun mmodule: MModule do return compiler.mainmodule
 
-	protected fun compile_metainfo_header_structs
+	redef fun compile_classinfo_header_struct
 	do
+		var classinfo = get_classinfo_mclass
+		var typeinfo = get_typeinfo_mclass
+		compiler.header.add_decl("struct instance_{classinfo.c_name} \{")
+		compiler.header.add_decl("""
+const struct type *type;
+const struct class *class;
+unsigned int metainfo;
+/* if this `ClassInfo` isn't a generic class, then `typeinfo_table point to its
+unique `TypeInfo` instance.*/""")
+		compiler.header.add_decl("struct instance_{typeinfo.c_name}* typeinfo_table;")
+		compiler.header.add_decl("""
+const struct class* class_ptr;
+const char* name;
+/* We always store type parameters first */
+const struct propinfo_t props[];
+};""")
+
+	end
+
+	redef fun compile_typeinfo_header_struct
+	do
+		var classinfo = get_classinfo_mclass
+		var typeinfo = get_typeinfo_mclass
+		compiler.header.add_decl("struct instance_{typeinfo.c_name} \{")
+		compiler.header.add_decl("""
+const struct type *type;
+const struct class *class;
+unsigned int metainfo;
+/* This type_ptr might be null if instance_TypeInfo is a static type */
+struct type* type_ptr;""")
+		compiler.header.add_decl("const struct instance_{classinfo.c_name}* classinfo;")
+		compiler.header.add_decl("const struct instance_{typeinfo.c_name}* type_arguments[];")
+		compiler.header.add_decl("\};")
+	end
+
+	redef fun compile_attributeinfo_header_struct
+	do
+		var classinfo = get_classinfo_mclass
+		var typeinfo = get_typeinfo_mclass
+		var attrinfo = get_attrinfo_mclass
+		compiler.header.add_decl("struct instance_{attrinfo.c_name} \{")
+		compiler.header.add_decl("""
+const struct type *type;
+const struct class *class;
+unsigned int metainfo;
+const char* name;""")
+		compiler.header.add_decl("const struct instance_{classinfo.c_name}* classinfo;")
+		compiler.header.add_decl("int color;")
+		compiler.header.add_decl("const struct instance_{typeinfo.c_name}* static_type;")
+		compiler.header.add_decl("\};")
+	end
+
+	redef fun compile_methodinfo_header_struct
+	do
+		var classinfo = get_classinfo_mclass
+		var typeinfo = get_typeinfo_mclass
+		var methodinfo = get_methodinfo_mclass
+		compiler.header.add_decl("struct instance_{methodinfo.c_name} \{")
+		compiler.header.add_decl("""
+const struct type *type;
+const struct class *class;
+unsigned int metainfo;
+const char* name;""")
+		compiler.header.add_decl("const struct instance_{classinfo.c_name}* classinfo;")
+		compiler.header.add_decl("int color;")
+		compiler.header.add_decl("const struct instance_{typeinfo.c_name}* signature[];")
+		compiler.header.add_decl("\};")
+	end
+
+	redef fun compile_vtypeinfo_header_struct
+	do
+		#
+		# This structure is shared by virtual types and parameter types.
+		# In this implementation, any type parameter share the same base
+		# structure as `propinfo_t`. Morever, they are stored inside the
+		# same `props[]` array inside<
+		# `instance_ClassInfo`.
+		#
+		var classinfo = get_classinfo_mclass
+		var typeinfo = get_typeinfo_mclass
+		var vtypeinfo = get_vtypeinfo_mclass
+		compiler.header.add_decl("struct instance_{vtypeinfo.c_name} \{")
+		compiler.header.add_decl("""
+const struct type *type;
+const struct class *class;
+unsigned int metainfo;
+const char* name;""")
+		compiler.header.add_decl("const struct instance_{classinfo.c_name}* classinfo;")
+		compiler.header.add_decl("const struct instance_{typeinfo.c_name}* static_type;")
+		compiler.header.add_decl("\};")
+
+	end
+
+	redef fun compile_commun_meta_header_structs
+	do
+		var mclass = get_classinfo_mclass
 		compiler.header.add_decl("""
 struct metainfo_t {
 const struct type *type;
@@ -43,67 +128,51 @@ struct propinfo_t {
 const struct type *type;
 const struct class *class;
 unsigned int metainfo;
-const char* name;
-const struct instance_ClassInfo* classinfo;
-};
+const char* name;""")
+		compiler.header.add_decl("const struct instance_{mclass.c_name}* classinfo;")
+		compiler.header.add_decl("\};")
+	end
 
-struct instance_AttributeInfo {
-const struct type *type;
-const struct class *class;
-unsigned int metainfo;
-int color;
-const char* name;
-const struct instance_ClassInfo* classinfo;
-const struct instance_TypeInfo* static_type;
-};
+	protected fun get_classinfo_mclass: MClass
+	do
+		var model = compiler.mainmodule.model
+		var mclasses = model.get_mclasses_by_name("ClassInfo")
+		assert mclasses != null
+		assert mclasses.length == 1
+		return mclasses.first
+	end
 
-struct instance_MethodInfo {
-const struct type *type;
-const struct class *class;
-unsigned int metainfo;
-int color;
-const char* name;
-const struct instance_ClassInfo* classinfo;
-const struct instance_TypeInfo* signature[];
-};
-
-/*
-This structure is shared by virtual types and parameter types.
-In this implementation, any type parameter share the same base structure as
-`propinfo_t`. Morever, they are stored inside the same `props[]` array inside<
-`instance_ClassInfo`.
-*/
-struct instance_VirtualTypeInfo {
-const struct type *type;
-const struct class *class;
-unsigned int metainfo;
-const char* name;
-const struct instance_ClassInfo* classinfo;
-const struct instance_TypeInfo* static_type;
-};
-
-struct instance_ClassInfo {
-const struct type *type;
-const struct class *class;
-unsigned int metainfo;
-/* if this `ClassInfo` isn't a generic class, then `typeinfo_table point to its
-unique `TypeInfo` instance.*/
-struct instance_TypeInfo* typeinfo_table;
-const struct class* class_ptr;
-const char* name;
-/* We always store type parameters first */
-const struct propinfo_t props[];
-};
-
-struct instance_TypeInfo {
-const struct type *type;
-const struct class *class;
-unsigned int metainfo;
-struct type* type_ptr; /* This type_ptr might be null if instance_TypeInfo is a static type */
-const struct instance_ClassInfo* classinfo;
-const struct instance_TypeInfo* type_arguments[];
-};
-""")
+	protected fun get_typeinfo_mclass: MClass
+	do
+		var model = compiler.mainmodule.model
+		var mclasses = model.get_mclasses_by_name("TypeInfo")
+		assert mclasses != null
+		assert mclasses.length == 1
+		return mclasses.first
+	end
+	protected fun get_attrinfo_mclass: MClass
+	do
+		var model = compiler.mainmodule.model
+		var mclasses = model.get_mclasses_by_name("AttributeInfo")
+		assert mclasses != null
+		assert mclasses.length == 1
+		return mclasses.first
+	end
+	protected fun get_methodinfo_mclass: MClass
+	do
+		var model = compiler.mainmodule.model
+		var mclasses = model.get_mclasses_by_name("MethodInfo")
+		assert mclasses != null
+		assert mclasses.length == 1
+		return mclasses.first
+	end
+	protected fun get_vtypeinfo_mclass: MClass
+	do
+		var model = compiler.mainmodule.model
+		var mclasses = model.get_mclasses_by_name("VirtualTypeInfo")
+		assert mclasses != null
+		assert mclasses.length == 1
+		return mclasses.first
 	end
 
 end

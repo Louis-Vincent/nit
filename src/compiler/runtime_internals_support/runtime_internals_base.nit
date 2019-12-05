@@ -7,7 +7,7 @@ import separate_compiler
 # implementation of `runtime_internals` module. This feature is only supported
 # by the separate compiler.
 interface RuntimeInternalsFactory
-	fun model_saver(compiler: SeparateCompiler): ModelSaver
+	fun meta_cstruct_provider(compiler: SeparateCompiler): MetaCStructProvider
 	is abstract
 
 	# Returns an object capable of compiling a `TypeInfo` enum class.
@@ -35,33 +35,15 @@ interface RuntimeInternalsFactory
 	is abstract
 end
 
-#class NullRuntimeInternals
-#	super RuntimeInternalsFactory
-#
-#	fun model_saver(compiler) do abort
-#
-#	# Returns an object capable of compiling a `TypeInfo` enum class.
-#	fun type_info_def(v) do abort
-#
-#	# Returns an object capable of compiling a `ClassInfo` enum class.
-#	fun class_info_def(v) do abort
-#
-#	# Returns an object capable of compiling a `AttributeInfo` enum class.
-#	fun attr_info_def(v) do abort
-#
-#	# Returns an object capable of compiling a `MethodInfo` enum class.
-#	fun method_info_def(v) do abort
-#
-#	# Returns an object capable of compiling a `VirtualTypeInfo` enum class.
-#	fun vtype_info_def(v) do abort
-#
-#	# Returns an object capable of compiling a `RuntimeInternalRepo` enum class.
-#	fun runtime_internals_def(v) do abort
-#end
-
-# Base class for all model persistor.
-interface ModelSaver
-	fun save_model is abstract
+# Base class for all meta info C struct provider.
+# This should be a wrapper over an instance of `SeparateCompiler`
+interface MetaCStructProvider
+	fun compile_commun_meta_header_structs is abstract
+	fun compile_classinfo_header_struct is abstract
+	fun compile_typeinfo_header_struct is abstract
+	fun compile_attributeinfo_header_struct is abstract
+	fun compile_methodinfo_header_struct is abstract
+	fun compile_vtypeinfo_header_struct is abstract
 end
 
 # Base class for all `TypeInfo` implementations.
