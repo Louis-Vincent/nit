@@ -4,11 +4,29 @@ module default
 import runtime_internals_base
 private import model::model_collect
 
+redef class AbstractCompiler
+
+	# Unsafely tries to find a class named `classname`
+	fun get_mclass(classname: String): MClass
+	do
+		var model = self.mainmodule.model
+		var mclasses = model.get_mclasses_by_name(classname)
+		assert mclasses != null
+		assert mclasses.length == 1
+		return mclasses.first
+	end
+end
+
 class DefaultRuntimeInternals
 	super RuntimeInternalsFactory
-	redef fun meta_cstruct_provider(compiler)
+	redef fun meta_cstruct_provider(cc)
 	do
-		return new DefaultCStructProvider(compiler)
+		return new DefaultCStructProvider(cc)
+	end
+
+	redef fun model_saver(cc)
+	do
+		return new DefaultModelSaver(cc)
 	end
 end
 
@@ -133,6 +151,7 @@ const char* name;""")
 		compiler.header.add_decl("\};")
 	end
 
+	# TODO: remove these methods
 	protected fun get_classinfo_mclass: MClass
 	do
 		var model = compiler.mainmodule.model
@@ -231,14 +250,28 @@ end
 # x = inherited from `PropertyInfo` meta structure
 abstract class SavableMEntity
 	var is_saved: Bool is protected writable
-	fun c_meta_declaration: String is abstract
+	fun c_meta_declaration(cc: AbstractCompiler): String is abstract
 	fun compile_metatag_to_c(v: AbstractCompilerVisitor) is abstract
-	fun save(v: AbstractCompilerVisitor): nullable CompilationDependency is abstract
+	fun save(v: AbstractCompilerVisitor): nullable CompilationDependency do return null
 end
 
 abstract class CompilationDependency
 	fun is_out_of_date: Bool is abstract
-	fun resolve_dependency(v: AbstractCompiler): nullable CompilationDependency is abstract
+	fun resolve_dependency(cc: AbstractCompiler): nullable CompilationDependency
+	is abstract, expect(not is_out_of_date)
+end
+
+class SimpleDependency
+	super CompilationDependency
+	protected var savable: SavableMEntity
+
+	redef fun is_out_of_date do return savable.is_saved
+
+	redef fun resolve_dependency(cc)
+	do
+		var v = cc.new_visitor
+		return savable.save(v)
+	end
 end
 
 class AggregateDependencies
@@ -256,13 +289,13 @@ class AggregateDependencies
 		return true
 	end
 
-	redef fun resolve_dependency(v)
+	redef fun resolve_dependency(cc)
 	do
 		if is_out_of_date then return null
 		var aggregate = new AggregateDependencies
 		for dep in dependencies do
 			if dep.is_out_of_date then continue
-			var new_dep = dep.resolve_dependency(v)
+			var new_dep = dep.resolve_dependency(cc)
 			if new_dep != null then
 				aggregate.add(new_dep)
 			end
@@ -279,6 +312,32 @@ class AggregateDependencies
 		expect(not dep.is_out_of_date)
 	do
 		dependencies.add(dep)
+	end
+end
+
+class DefaultModelSaver
+	super ModelSaver
+	protected var cc: SeparateCompiler
+
+	redef fun save_model(model)
+	do
+		var dependencies = (new Array[CompilationDependency]).as_fifo
+		for mclass in model.mclasses do
+			var dep = new SimpleDependency(mclass)
+			dependencies.add(dep)
+		end
+
+		while not dependencies.is_empty do
+			var dep = dependencies.take
+			if dep.is_out_of_date then
+				continue
+			else
+				var new_dep = dep.resolve_dependency(cc)
+				if new_dep != null then
+					dependencies.add(new_dep)
+				end
+			end
+		end
 	end
 end
 
@@ -332,26 +391,19 @@ end
 redef class MClass
 	super SavableMEntity
 
-	redef fun c_meta_declaration
-	do
-		return "struct instance_ClassInfo instance_ClassInfo_{c_name}"
-	end
-
 	redef fun save(v)
 	do
 		var compiler = v.compiler
 		var mmodule = compiler.mainmodule
-		var model = compiler.modelbuilder.model
-		var classinfo = model.get_mclasses_by_name("ClassInfo")?.first
-		assert classinfo != null
-		var c_name = classinfo.c_name
+		var classinfo = compiler.get_mclass("ClassInfo")
+
 		var mprops = self.collect_accessible_mproperties(mmodule, null)
 		var mtypes = self.get_mtype_cache.values
 
 		# Some prerequisite
 		# We require the class and type  of `ClassInfo` to be declared
-		v.require_declaration("class_{c_name}")
-		v.require_declaration("type_{c_name}")
+		v.require_declaration("class_{classinfo.c_name}")
+		v.require_declaration("type_{classinfo.c_name}")
 
 		# We require the declaration of the class we want to save
 		v.require_declaration("class_{self.c_name}")
@@ -363,14 +415,15 @@ redef class MClass
 			v.require_declaration("type_{self.c_name}")
 		end
 
+		var decl = "struct instance_{classinfo.c_name} classinfo_of_{self.c_name}"
 		# Then new declaration
-		compiler.provide_declaration("instance_ClassInfo_{self.c_name}", "{c_meta_declaration};")
+		compiler.provide_declaration("instance_{classinfo.c_name}", decl)
 
 		# The instance
-		v.add_decl("{c_meta_declaration} \{")
+		v.add_decl("{decl} \{")
 		## Commun metainfo structure
-		v.add_decl("&type_{c_name},")
-		v.add_decl("&class_{c_name},")
+		v.add_decl("&type_{classinfo.c_name},")
+		v.add_decl("&class_{classinfo.c_name},")
 		compile_metatag_to_c(v)
 
 		if self.arity > 0 then
@@ -380,15 +433,16 @@ redef class MClass
 			v.add_decl("&type_{self.c_name},")
 		end
 		## `ClassInfo` specific
-		v.add_decl("&class_{self.c_name};") # pointer to the reflected class
-		v.add_decl("{c_name}") # name of the reflected class
+		v.add_decl("&class_{self.c_name},") # pointer to the reflected class
+		v.add_decl("\"{self.c_name}\",") # name of the reflected class
 
 		var mpropdefs = most_specific_mpropdefs(mmodule)
 
 		for mpropdef in mpropdefs do
-			var mpropdef_decl = mpropdef.c_meta_declaration
-			v.require_declaration("{mpropdef_decl},")
-			v.add_decl("(propinfo_t*)&{mpropdef_decl},")
+			#var mpropdef_decl = mpropdef.c_meta_declaration
+			#v.require_declaration("{mpropdef_decl},")
+			# TODO: remove the ',' when last item
+			#v.add_decl("(propinfo_t*)&{mpropdef_decl},")
 		end
 		v.add_decl("\}")
 		self.is_saved = true
@@ -457,15 +511,45 @@ redef class MAttributeDef
 
 	redef fun save(v)
 	do
-		#v.require_declaration(mclass.c_meta_declaration)
-		#v.compiler.provide_declaration(c_meta_declaration)
-		return null
-	end
+		var compiler = v.compiler
+		var mmodule = compiler.mainmodule
+		var classinfo = compiler.get_mclass("ClassInfo")
+		var typeinfo = compiler.get_mclass("TypeInfo")
+		var attrinfo = compiler.get_mclass("AttributeInfo")
+		var static_mtype = self.static_mtype.as(not null)
 
-	redef fun c_meta_declaration
-	do
-		# FIXME: check for better naming convention
-		return "instance_AttributeInfo_{mclass.c_name}_{self.name}"
+		v.require_declaration("class_{classinfo.c_name}")
+		v.require_declaration("type_{classinfo.c_name}")
+		v.require_declaration("class_{typeinfo.c_name}")
+		v.require_declaration("type_{typeinfo.c_name}")
+		v.require_declaration("classinfo_of_{mclass.c_name}")
+		v.require_declaration("typeinfo_of_{static_mtype.c_name}")
+
+		# We require the declaration of the class we want to save
+		v.require_declaration("class_{self.c_name}")
+
+		var decl = "struct instance_{attrinfo.c_name} attrinfo_of_{self.c_name}"
+		# Then new declaration
+		compiler.provide_declaration("instance_{attrinfo.c_name}", "{decl}")
+
+		# The instance
+		v.add_decl("{decl} \{")
+		## Commun metainfo structure
+		v.add_decl("&type_{classinfo.c_name},")
+		v.add_decl("&class_{classinfo.c_name},")
+		compile_metatag_to_c(v)
+
+		## specifics
+		v.add_decl("\"{self.c_name}\",") # name of the reflected attribute
+		v.add_decl("&classinfo_of_{mclass.c_name},")
+		v.add_decl("{const_color},")
+		v.add_decl("&typeinfo_of_{static_mtype.c_name}")
+		v.add_decl("\}")
+		self.is_saved = true
+
+		# TODO: return dependencies
+		return null
+
 	end
 
 	redef fun compile_metatag_to_c(v)
@@ -478,13 +562,6 @@ redef class MAttributeDef
 end
 
 redef class MMethodDef
-
-	redef fun c_meta_declaration
-	do
-		var mclass = mproperty.intro_mclassdef.mclass
-		# FIXME: check for better naming convention
-		return "instance_MethodInfo_{mclass.c_name}_{self.name}"
-	end
 
 	redef fun compile_metatag_to_c(v)
 	do
@@ -512,13 +589,6 @@ redef class MMethodDef
 end
 
 redef class MVirtualTypeDef
-
-	redef fun c_meta_declaration
-	do
-		var mclass = self.mproperty.intro_mclassdef.mclass
-		# FIXME: check for better naming convention
-		return "instance_VirtualTypeInfo_{mclass.c_name}_{self.name}"
-	end
 
 	redef fun compile_metatag_to_c(v)
 	do

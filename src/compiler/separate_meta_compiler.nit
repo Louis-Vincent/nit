@@ -56,6 +56,15 @@ class SeparateMetaCompiler
 		mcp = rti.meta_cstruct_provider(self)
 	end
 
+	redef fun do_compilation
+	do
+		super
+		var c_name = mainmodule.c_name
+		self.new_file("{c_name}.meta")
+		var ms = rti.model_saver(self)
+		ms.save_model(self.mainmodule.model)
+	end
+
 	redef fun compile_header_structs do
 		super
 		mcp.compile_commun_meta_header_structs

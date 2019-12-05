@@ -10,6 +10,8 @@ interface RuntimeInternalsFactory
 	fun meta_cstruct_provider(compiler: SeparateCompiler): MetaCStructProvider
 	is abstract
 
+	fun model_saver(compiler: SeparateCompiler): ModelSaver is abstract
+
 	# Returns an object capable of compiling a `TypeInfo` enum class.
 	fun type_info_def(v: SeparateCompilerVisitor): TypeInfoImpl
 	is abstract
@@ -44,6 +46,10 @@ interface MetaCStructProvider
 	fun compile_attributeinfo_header_struct is abstract
 	fun compile_methodinfo_header_struct is abstract
 	fun compile_vtypeinfo_header_struct is abstract
+end
+
+interface ModelSaver
+	fun save_model(model: Model) is abstract
 end
 
 # Base class for all `TypeInfo` implementations.
