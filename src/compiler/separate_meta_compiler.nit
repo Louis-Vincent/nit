@@ -67,7 +67,7 @@ class SeparateMetaCompiler
 
 	redef fun compile_header_structs do
 		super
-		mcp.compile_commun_meta_header_structs
+		mcp.compile_metainfo_header_structs
 	end
 
 	redef fun compile_class_if_universal(ccinfo, v)
@@ -76,22 +76,83 @@ class SeparateMetaCompiler
 		if res then return res
 
 		var mclass = ccinfo.mclass
+                var c_name = mclass.c_name
+                var mtype = ccinfo.mtype
 
 		res = true
 
+                var metainfo_struct = ""
+                var metainfo_field = ""
 		if mclass.name == "ClassInfo" then
-			mcp.compile_classinfo_header_struct
-		else if mclass.name == "TypeInfo" then
-			mcp.compile_typeinfo_header_struct
+                        self.header.add_decl("struct instance_{c_name} \{")
+                        self.header.add_decl("const struct type* type;")
+                        self.header.add_decl("const struct class* class;")
+                        self.header.add_decl("const struct clasinfo_t* classinfo;")
+                        self.header.add_decl("\};")
+                        metainfo_struct = "classinfo_t"
+                        metainfo_field = "classinfo"
 		else if mclass.name == "AttributeInfo" then
-			mcp.compile_attributeinfo_header_struct
+			self.header.add_decl("struct instance_{c_name} \{")
+                        self.header.add_decl("const struct type* type;")
+                        self.header.add_decl("const struct class* class;")
+                        self.header.add_decl("const struct attrinfo_t* attrinfo;;")
+                        self.header.add_decl("\};")
+                        metainfo_struct = "attrinfo_t"
+                        metainfo_field = "methodinfo"
+		else if mclass.name == "TypeInfo" then
+			self.header.add_decl("struct instance_{c_name} \{")
+                        self.header.add_decl("const struct type* type;")
+                        self.header.add_decl("const struct class* class;")
+                        self.header.add_decl("const struct typeinfo_t* typeinfo;")
+                        self.header.add_decl("\};")
+                        metainfo_struct = "typeinfo_t"
+                        metainfo_field = "typeinfo"
 		else if mclass.name == "MethodInfo" then
-			mcp.compile_methodinfo_header_struct
+                        self.header.add_decl("struct instance_{c_name} \{")
+                        self.header.add_decl("const struct type* type;")
+                        self.header.add_decl("const struct class* class;")
+                        self.header.add_decl("const struct attrinfo_t* attrinfo;;")
+                        self.header.add_decl("\};")
+                        metainfo_struct = "methodinfo_t"
+                        metainfo_field = "methodinfo"
 		else if mclass.name == "VirtualTypeInfo" then
-			mcp.compile_vtypeinfo_header_struct
+			#
+		        # This structure is shared by virtual types and parameter types.
+		        # In this implementation, any type parameter share the same base
+		        # structure as `propinfo_t`. Morever, they are stored inside the
+		        # same `props[]` array inside<
+		        # `instance_ClassInfo`.
+		        #
+		        self.header.add_decl("struct instance_{c_name} \{")
+                        self.header.add_decl("const struct type* type;")
+                        self.header.add_decl("const struct class* class;")
+                        self.header.add_decl("const struct vtypeinfo_t* vtypeinfo;")
+                        self.header.add_decl("\};")
+                        metainfo_struct = "vtypeinfo_t"
+                        metainfo_field = "vtypeinfo"
 		else
 			res = false
 		end
+
+                if res then
+                        assert metainfo_struct != ""
+                        assert metainfo_field != ""
+                        self.provide_declaration("NEW_{c_name}", "{mtype.ctype} NEW_{c_name}(const struct {metainfo_struct}* metainfo)")
+                        v.require_declaration("type_{c_name}")
+                        v.require_declaration("class_{c_name}")
+
+                        v.add_decl("/* allocate {mtype} */")
+			v.add_decl("{mtype.ctype} NEW_{c_name}(const struct vtypeinfo_t* vtypeinfo)")
+			var recv = v.get_name("self")
+			v.add_decl("struct instance_{c_name} *{recv};")
+			var alloc = v.nit_alloc("sizeof(struct instance_{c_name})", mclass.full_name)
+			v.add("{recv} = {alloc};")
+                        v.add("{recv}->class = &class_{c_name};")
+			v.add("{recv}->type = &type_{c_name};")
+                        v.add("{recv}->{metainfo_field} = metainfo;")
+			v.add("return (val*){recv};")
+			v.add("\}")
+                end
 
 		return res
 	end

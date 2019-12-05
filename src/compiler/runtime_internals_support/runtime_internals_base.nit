@@ -7,10 +7,10 @@ import separate_compiler
 # implementation of `runtime_internals` module. This feature is only supported
 # by the separate compiler.
 interface RuntimeInternalsFactory
-	fun meta_cstruct_provider(compiler: SeparateCompiler): MetaCStructProvider
+	fun meta_cstruct_provider(cc: AbstractCompiler): MetaCStructProvider
 	is abstract
 
-	fun model_saver(compiler: SeparateCompiler): ModelSaver is abstract
+	fun model_saver(cc: SeparateCompiler): ModelSaver is abstract
 
 	# Returns an object capable of compiling a `TypeInfo` enum class.
 	fun type_info_def(v: SeparateCompilerVisitor): TypeInfoImpl
@@ -38,14 +38,9 @@ interface RuntimeInternalsFactory
 end
 
 # Base class for all meta info C struct provider.
-# This should be a wrapper over an instance of `SeparateCompiler`
+# This should be a wrapper over an instance of `AbstractCompiler`
 interface MetaCStructProvider
-	fun compile_commun_meta_header_structs is abstract
-	fun compile_classinfo_header_struct is abstract
-	fun compile_typeinfo_header_struct is abstract
-	fun compile_attributeinfo_header_struct is abstract
-	fun compile_methodinfo_header_struct is abstract
-	fun compile_vtypeinfo_header_struct is abstract
+	fun compile_metainfo_header_structs is abstract
 end
 
 interface ModelSaver

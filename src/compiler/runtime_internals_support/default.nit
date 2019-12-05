@@ -4,18 +4,6 @@ module default
 import runtime_internals_base
 private import model::model_collect
 
-redef class AbstractCompiler
-
-	# Unsafely tries to find a class named `classname`
-	fun get_mclass(classname: String): MClass
-	do
-		var model = self.mainmodule.model
-		var mclasses = model.get_mclasses_by_name(classname)
-		assert mclasses != null
-		assert mclasses.length == 1
-		return mclasses.first
-	end
-end
 
 class DefaultRuntimeInternals
 	super RuntimeInternalsFactory
@@ -32,168 +20,67 @@ end
 
 class DefaultCStructProvider
 	super MetaCStructProvider
-
-	protected var compiler: AbstractCompiler
-
-	protected fun mmodule: MModule do return compiler.mainmodule
-
-	redef fun compile_classinfo_header_struct
+        protected var cc: AbstractCompiler
+	redef fun compile_metainfo_header_structs
 	do
-		var classinfo = get_classinfo_mclass
-		var typeinfo = get_typeinfo_mclass
-		compiler.header.add_decl("struct instance_{classinfo.c_name} \{")
-		compiler.header.add_decl("""
-const struct type *type;
-const struct class *class;
-unsigned int metainfo;
-/* if this `ClassInfo` isn't a generic class, then `typeinfo_table point to its
-unique `TypeInfo` instance.*/""")
-		compiler.header.add_decl("struct instance_{typeinfo.c_name}* typeinfo_table;")
-		compiler.header.add_decl("""
-const struct class* class_ptr;
-const char* name;
-/* We always store type parameters first */
-const struct propinfo_t props[];
-};""")
-
-	end
-
-	redef fun compile_typeinfo_header_struct
-	do
-		var classinfo = get_classinfo_mclass
-		var typeinfo = get_typeinfo_mclass
-		compiler.header.add_decl("struct instance_{typeinfo.c_name} \{")
-		compiler.header.add_decl("""
-const struct type *type;
-const struct class *class;
-unsigned int metainfo;
-/* This type_ptr might be null if instance_TypeInfo is a static type */
-struct type* type_ptr;""")
-		compiler.header.add_decl("const struct instance_{classinfo.c_name}* classinfo;")
-		compiler.header.add_decl("const struct instance_{typeinfo.c_name}* type_arguments[];")
-		compiler.header.add_decl("\};")
-	end
-
-	redef fun compile_attributeinfo_header_struct
-	do
-		var classinfo = get_classinfo_mclass
-		var typeinfo = get_typeinfo_mclass
-		var attrinfo = get_attrinfo_mclass
-		compiler.header.add_decl("struct instance_{attrinfo.c_name} \{")
-		compiler.header.add_decl("""
-const struct type *type;
-const struct class *class;
-unsigned int metainfo;
-const char* name;""")
-		compiler.header.add_decl("const struct instance_{classinfo.c_name}* classinfo;")
-		compiler.header.add_decl("int color;")
-		compiler.header.add_decl("const struct instance_{typeinfo.c_name}* static_type;")
-		compiler.header.add_decl("\};")
-	end
-
-	redef fun compile_methodinfo_header_struct
-	do
-		var classinfo = get_classinfo_mclass
-		var typeinfo = get_typeinfo_mclass
-		var methodinfo = get_methodinfo_mclass
-		compiler.header.add_decl("struct instance_{methodinfo.c_name} \{")
-		compiler.header.add_decl("""
-const struct type *type;
-const struct class *class;
-unsigned int metainfo;
-const char* name;""")
-		compiler.header.add_decl("const struct instance_{classinfo.c_name}* classinfo;")
-		compiler.header.add_decl("int color;")
-		compiler.header.add_decl("const struct instance_{typeinfo.c_name}* signature[];")
-		compiler.header.add_decl("\};")
-	end
-
-	redef fun compile_vtypeinfo_header_struct
-	do
-		#
-		# This structure is shared by virtual types and parameter types.
-		# In this implementation, any type parameter share the same base
-		# structure as `propinfo_t`. Morever, they are stored inside the
-		# same `props[]` array inside<
-		# `instance_ClassInfo`.
-		#
-		var classinfo = get_classinfo_mclass
-		var typeinfo = get_typeinfo_mclass
-		var vtypeinfo = get_vtypeinfo_mclass
-		compiler.header.add_decl("struct instance_{vtypeinfo.c_name} \{")
-		compiler.header.add_decl("""
-const struct type *type;
-const struct class *class;
-unsigned int metainfo;
-const char* name;""")
-		compiler.header.add_decl("const struct instance_{classinfo.c_name}* classinfo;")
-		compiler.header.add_decl("const struct instance_{typeinfo.c_name}* static_type;")
-		compiler.header.add_decl("\};")
-
-	end
-
-	redef fun compile_commun_meta_header_structs
-	do
-		var mclass = get_classinfo_mclass
-		compiler.header.add_decl("""
+		cc.header.add_decl("""
 struct metainfo_t {
-const struct type *type;
-const struct class *class;
-unsigned int metainfo;
+unsigned int metatag;
 };
 
 struct propinfo_t {
-const struct type *type;
-const struct class *class;
-unsigned int metainfo;
-const char* name;""")
-		compiler.header.add_decl("const struct instance_{mclass.c_name}* classinfo;")
-		compiler.header.add_decl("\};")
-	end
+unsigned int metatag;
+const char* name;
+const struct classinfo_t* classinfo;
+};
 
-	# TODO: remove these methods
-	protected fun get_classinfo_mclass: MClass
-	do
-		var model = compiler.mainmodule.model
-		var mclasses = model.get_mclasses_by_name("ClassInfo")
-		assert mclasses != null
-		assert mclasses.length == 1
-		return mclasses.first
-	end
+struct attrinfo_t {
+unsigned int metatag;
+const char* name;
+const struct classinfo_t* classinfo;
+const int color;
+const struct typeinfo_t* static_type;
+};
 
-	protected fun get_typeinfo_mclass: MClass
-	do
-		var model = compiler.mainmodule.model
-		var mclasses = model.get_mclasses_by_name("TypeInfo")
-		assert mclasses != null
-		assert mclasses.length == 1
-		return mclasses.first
-	end
-	protected fun get_attrinfo_mclass: MClass
-	do
-		var model = compiler.mainmodule.model
-		var mclasses = model.get_mclasses_by_name("AttributeInfo")
-		assert mclasses != null
-		assert mclasses.length == 1
-		return mclasses.first
-	end
-	protected fun get_methodinfo_mclass: MClass
-	do
-		var model = compiler.mainmodule.model
-		var mclasses = model.get_mclasses_by_name("MethodInfo")
-		assert mclasses != null
-		assert mclasses.length == 1
-		return mclasses.first
-	end
-	protected fun get_vtypeinfo_mclass: MClass
-	do
-		var model = compiler.mainmodule.model
-		var mclasses = model.get_mclasses_by_name("VirtualTypeInfo")
-		assert mclasses != null
-		assert mclasses.length == 1
-		return mclasses.first
-	end
+struct methodinfo_t {
+unsigned int metatag;
+const char* name;
+const struct classinfo_t* classinfo;
+const int color;
+const struct typeinfo_t* signature[];
+};
 
+/*
+This structure is shared by virtual types and parameter types.
+In this implementation, any type parameter share the same base structure as
+`propinfo_t`. Morever, they are stored inside the same `props[]` array inside<
+`instance_ClassInfo`.
+*/
+struct vtypeinfo_t {
+unsigned int metatag;
+const char* name;
+const struct classinfo_t* classinfo;
+const struct typeinfo_t* static_type;
+};
+
+struct classinfo_t {
+unsigned int metatag;
+const struct class* class_ptr;
+/* if `self` is not generic, then `typeinfo_table` points directly to its type*/
+struct typeinfo_t* typeinfo_table;
+const char* name;
+/* We always store type parameters first if any*/
+const struct propinfo_t props[];
+};
+
+struct typeinfo_t {
+unsigned int metatag;
+struct type* type_ptr; /* This type_ptr might be null if instance_TypeInfo is a static type */
+const struct classinfo_t* classinfo;
+const struct typeinfo_t* type_arguments[];
+};
+""")
+	end
 end
 
 # Each internal structure that represent a metainformation
@@ -250,7 +137,7 @@ end
 # x = inherited from `PropertyInfo` meta structure
 abstract class SavableMEntity
 	var is_saved: Bool is protected writable
-	fun c_meta_declaration(cc: AbstractCompiler): String is abstract
+	fun metatag_value(mmodule: MModule): Int is abstract
 	fun compile_metatag_to_c(v: AbstractCompilerVisitor) is abstract
 	fun save(v: AbstractCompilerVisitor): nullable CompilationDependency do return null
 end
@@ -395,52 +282,46 @@ redef class MClass
 	do
 		var compiler = v.compiler
 		var mmodule = compiler.mainmodule
-		var classinfo = compiler.get_mclass("ClassInfo")
 
 		var mprops = self.collect_accessible_mproperties(mmodule, null)
 		var mtypes = self.get_mtype_cache.values
 
 		# Some prerequisite
-		# We require the class and type  of `ClassInfo` to be declared
-		v.require_declaration("class_{classinfo.c_name}")
-		v.require_declaration("type_{classinfo.c_name}")
+		v.require_declaration("const struct classinfo_t")
+		v.require_declaration("const struct typeinfo_t")
+                v.require_declaration("const struct propinfo_t")
 
 		# We require the declaration of the class we want to save
 		v.require_declaration("class_{self.c_name}")
 
 		if self.arity > 0 then
-			v.require_declaration("type_table_{self.c_name}")
+			v.require_declaration("typeinfo_table_{self.c_name}")
 		else
-			# TODO: maybe not the good code
-			v.require_declaration("type_{self.c_name}")
+			v.require_declaration("typeinfo_of_{self.c_name}")
 		end
 
-		var decl = "struct instance_{classinfo.c_name} classinfo_of_{self.c_name}"
+                var decl = "struct classinfo_t classinfo_of_{c_name}"
+
 		# Then new declaration
-		compiler.provide_declaration("instance_{classinfo.c_name}", decl)
+                compiler.provide_declaration("classinfo_of_{c_name}", decl)
 
 		# The instance
 		v.add_decl("{decl} \{")
-		## Commun metainfo structure
-		v.add_decl("&type_{classinfo.c_name},")
-		v.add_decl("&class_{classinfo.c_name},")
-		compile_metatag_to_c(v)
+		v.add_decl("{metatag_value(mmodule)},")
+		v.add_decl("&class_{self.c_name},") # pointer to the reflected class
 
 		if self.arity > 0 then
 			v.add_decl("&type_table_{self.c_name},")
 		else
 			# TODO: maybe not the good code
-			v.add_decl("&type_{self.c_name},")
+			v.add_decl("&typeinfo_of_{self.c_name},")
 		end
-		## `ClassInfo` specific
-		v.add_decl("&class_{self.c_name},") # pointer to the reflected class
 		v.add_decl("\"{self.c_name}\",") # name of the reflected class
 
 		var mpropdefs = most_specific_mpropdefs(mmodule)
 
 		for mpropdef in mpropdefs do
 			#var mpropdef_decl = mpropdef.c_meta_declaration
-			#v.require_declaration("{mpropdef_decl},")
 			# TODO: remove the ',' when last item
 			#v.add_decl("(propinfo_t*)&{mpropdef_decl},")
 		end
@@ -470,11 +351,10 @@ redef class MClass
 		return res
 	end
 
-	redef fun compile_metatag_to_c(v: AbstractCompilerVisitor)
+	redef fun metatag_value(mmodule)
 	do
 		var tag = 0x00000000
 		var metakind = 0 # it's a class kind, nothing to do
-		var mmodule = v.compiler.mainmodule
 		var arity = self.mparameters.length
 		var mproperties = self.collect_accessible_mproperties(mmodule, null)
 		var kind = classkind_to_int(self.kind)
@@ -484,14 +364,14 @@ redef class MClass
 		tag = tag | (kind << 10) # 3 bits => 10 + 3 + 13
 		tag = tag | (visibility << 13) # 1 bits => 13 + 2 = 15
 		tag = tag | (mproperties.length << 15)
-		v.add_decl("{tag};")
+                return tag
 	end
 end
 
 redef class MPropDef
 	super SavableMEntity
 
-	fun commun_metatag: Int
+	redef fun metatag_value(mmodule)
 	do
 		var tag = 0x00000000
 		var metakind = 0 # we don't know yet
@@ -513,61 +393,49 @@ redef class MAttributeDef
 	do
 		var compiler = v.compiler
 		var mmodule = compiler.mainmodule
-		var classinfo = compiler.get_mclass("ClassInfo")
-		var typeinfo = compiler.get_mclass("TypeInfo")
-		var attrinfo = compiler.get_mclass("AttributeInfo")
 		var static_mtype = self.static_mtype.as(not null)
 
-		v.require_declaration("class_{classinfo.c_name}")
-		v.require_declaration("type_{classinfo.c_name}")
-		v.require_declaration("class_{typeinfo.c_name}")
-		v.require_declaration("type_{typeinfo.c_name}")
-		v.require_declaration("classinfo_of_{mclass.c_name}")
-		v.require_declaration("typeinfo_of_{static_mtype.c_name}")
+                # Some prerequisite
+		v.require_declaration("const struct classinfo_t")
+		v.require_declaration("const struct typeinfo_t")
+                v.require_declaration("const struct attrinfo_t")
+                v.require_declaration("classinfo_of_{mclass.c_name}")
+                v.require_declaration("typeinfo_of_{static_mtype.c_name}")
 
-		# We require the declaration of the class we want to save
-		v.require_declaration("class_{self.c_name}")
+		var decl = "struct attrinfo_t attrinfo_of_{self.c_name}"
+		## Then new declaration
+		compiler.provide_declaration("attrinfo_of_{c_name}", "{decl}")
 
-		var decl = "struct instance_{attrinfo.c_name} attrinfo_of_{self.c_name}"
-		# Then new declaration
-		compiler.provide_declaration("instance_{attrinfo.c_name}", "{decl}")
-
-		# The instance
+		## The instance
 		v.add_decl("{decl} \{")
-		## Commun metainfo structure
-		v.add_decl("&type_{classinfo.c_name},")
-		v.add_decl("&class_{classinfo.c_name},")
-		compile_metatag_to_c(v)
+                v.add_decl("{metatag_value(mmodule)},")
+                v.add_decl("\"{c_name}\",")
+                v.add_decl("&classinfo_of_{mclass.c_name},")
+                v.add_decl("{const_color},")
+                v.add_decl("&typeinfo_of_{static_mtype.c_name}")
+                v.add_decl("\};")
 
-		## specifics
-		v.add_decl("\"{self.c_name}\",") # name of the reflected attribute
-		v.add_decl("&classinfo_of_{mclass.c_name},")
-		v.add_decl("{const_color},")
-		v.add_decl("&typeinfo_of_{static_mtype.c_name}")
-		v.add_decl("\}")
 		self.is_saved = true
-
 		# TODO: return dependencies
 		return null
-
 	end
 
-	redef fun compile_metatag_to_c(v)
+	redef fun metatag_value(mmodule)
 	do
-		var tag = self.commun_metatag
+		var tag = super
 		var metakind = 2
 		tag = tag | metakind
-		v.add_decl("{tag};")
+                return tag
 	end
 end
 
 redef class MMethodDef
 
-	redef fun compile_metatag_to_c(v)
+	redef fun metatag_value(mmodule)
 	do
-		var tag = self.commun_metatag
+		var tag = super
 		var qualifier = 0
-		# TODO:
+
 		if self.is_abstract then qualifier = 1
 		if self.is_intern then qualifier = 2
 		if self.is_extern then qualifier = 3
@@ -584,18 +452,18 @@ redef class MMethodDef
 		tag = tag | metakind
 		tag = tag | (arity << 3)
 		tag = tag | (has_return << 10)
-		v.add_decl("{tag};")
+                return tag
 	end
 end
 
 redef class MVirtualTypeDef
 
-	redef fun compile_metatag_to_c(v)
+	redef fun metatag_value(mmodule)
 	do
-		var tag = self.commun_metatag
+		var tag = super
 		var metakind = 4
 		tag = tag | metakind
-		v.add_decl("{tag};")
+                return tag
 	end
 end
 
