@@ -130,7 +130,7 @@ class SeparateMetaCompiler
                         self.header.add_decl("struct instance_{c_name} \{")
                         self.header.add_decl("const struct type* type;")
                         self.header.add_decl("const struct class* class;")
-                        self.header.add_decl("const struct clasinfo_t* classinfo;")
+			self.header.add_decl("const struct classinfo_t* classinfo;")
                         self.header.add_decl("\};")
                         metainfo_struct = "classinfo_t"
                         metainfo_field = "classinfo"
@@ -138,10 +138,10 @@ class SeparateMetaCompiler
 			self.header.add_decl("struct instance_{c_name} \{")
                         self.header.add_decl("const struct type* type;")
                         self.header.add_decl("const struct class* class;")
-                        self.header.add_decl("const struct attrinfo_t* attrinfo;;")
+                        self.header.add_decl("const struct attrinfo_t* attrinfo;")
                         self.header.add_decl("\};")
                         metainfo_struct = "attrinfo_t"
-                        metainfo_field = "methodinfo"
+                        metainfo_field = "attrinfo"
 		else if mclass.name == "TypeInfo" then
 			self.header.add_decl("struct instance_{c_name} \{")
                         self.header.add_decl("const struct type* type;")
@@ -154,7 +154,7 @@ class SeparateMetaCompiler
                         self.header.add_decl("struct instance_{c_name} \{")
                         self.header.add_decl("const struct type* type;")
                         self.header.add_decl("const struct class* class;")
-                        self.header.add_decl("const struct attrinfo_t* attrinfo;;")
+                        self.header.add_decl("const struct methodinfo_t* methodinfo;")
                         self.header.add_decl("\};")
                         metainfo_struct = "methodinfo_t"
                         metainfo_field = "methodinfo"
@@ -185,7 +185,7 @@ class SeparateMetaCompiler
                         v.require_declaration("class_{c_name}")
 
                         v.add_decl("/* allocate {mtype} */")
-			v.add_decl("{mtype.ctype} NEW_{c_name}(const struct vtypeinfo_t* vtypeinfo)")
+			v.add_decl("{mtype.ctype} NEW_{c_name}(const struct {metainfo_struct}* metainfo) \{")
 			var recv = v.get_name("self")
 			v.add_decl("struct instance_{c_name} *{recv};")
 			var alloc = v.nit_alloc("sizeof(struct instance_{c_name})", mclass.full_name)

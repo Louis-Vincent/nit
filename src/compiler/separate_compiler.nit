@@ -314,7 +314,7 @@ class SeparateCompiler
 		color_consts_done.add(m)
 	end
 
-	private var color_consts_done = new HashSet[Object]
+	protected var color_consts_done = new HashSet[Object]
 
 	# The conflict graph of classes used for coloration
 	var class_conflict_graph: POSetConflictGraph[MClass] is noinit

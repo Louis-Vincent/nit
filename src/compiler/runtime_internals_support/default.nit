@@ -22,13 +22,6 @@ class DefaultCStructProvider
         protected var cc: AbstractCompiler
 	redef fun compile_metainfo_header_structs
 	do
-		#cc.provide_declaration("struct metainfo_t")
-		#cc.provide_declaration("struct propinfo_t")
-		#cc.provide_declaration("struct attrinfo_t")
-		#cc.provide_declaration("struct methodinfo_t")
-		#cc.provide_declaration("struct vtypeinfo_t")
-		#cc.provide_declaration("struct classinfo_t")
-		#cc.provide_declaration("struct typeinfo_t")
 		cc.header.add_decl("""
 struct metainfo_t {
 unsigned int metatag;
@@ -73,15 +66,19 @@ struct classinfo_t {
 unsigned int metatag;
 const struct class* class_ptr;
 /* if `self` is not generic, then `typeinfo_table` points directly to its type*/
-struct typeinfo_t* typeinfo_table;
+struct typeinfo_t** typeinfo_table;
 const char* name;
 /* We always store type parameters first if any*/
-const struct propinfo_t props[];
+struct classinfo_t** ancestors;
+const struct propinfo_t* props[];
 };
 
 struct typeinfo_t {
 unsigned int metatag;
-struct type* type_ptr; /* This type_ptr might be null if instance_TypeInfo is a static type */
+/* This type_ptr might be null if it describes a static type or
+is an unhardened open type.
+*/
+const struct type* type_ptr;
 const struct classinfo_t* classinfo;
 //const struct typeinfo_t* type_arguments[];
 };
@@ -147,13 +144,53 @@ abstract class SavableMEntity
 	fun meta_cstruct_type: String is abstract
 	fun metainfo_uid: String is abstract
 	fun full_metainfo_decl: String do return "{meta_cstruct_type} {metainfo_uid}"
-	fun save(v: AbstractCompilerVisitor): nullable CompilationDependency do return null
+	fun save(v: SeparateCompilerVisitor): nullable CompilationDependency
+	is
+		expect(not self.is_saved)
+	do
+		return null
+	end
+
+	#fun is_savable(cc: SeparateCompiler): Bool do return cc.is_alive(self)
+end
+
+redef class SeparateCompiler
+
+	fun has_color_for(entity: MEntity): Bool
+	do
+		return color_consts_done.has(entity)
+	end
+
+	# TODO: may be removed.
+	fun is_alive(entity: MEntity): Bool
+	do
+		var rta = self.runtime_type_analysis
+		assert rta != null
+		var res = true
+		if entity isa MClass then
+			res = rta.live_classes.has(entity)
+		else if entity isa MClassType then
+			if entity isa MGenericType then
+				res = rta.live_open_types.has(entity)
+			else
+				res = rta.live_types.has(entity)
+			end
+		else if entity isa MType then
+			res = rta.live_cast_types.has(entity)
+			res = res or rta.live_open_cast_types.has(entity)
+		else if entity isa MMethodDef then
+			res = rta.live_methoddefs.has(entity)
+		else if entity isa MMethod then
+			res = rta.live_methods.has(entity)
+		end
+		return res
+	end
 end
 
 abstract class CompilationDependency
 	fun is_out_of_date: Bool is abstract
-	fun resolve_dependency(cc: AbstractCompiler): nullable CompilationDependency
-	is abstract, expect(not is_out_of_date)
+	fun resolve_dependency(cc: SeparateCompiler): nullable CompilationDependency
+	is abstract
 end
 
 class SimpleDependency
@@ -164,8 +201,11 @@ class SimpleDependency
 
 	redef fun resolve_dependency(cc)
 	do
+		if is_out_of_date then return null
 		var v = cc.new_visitor
-		return savable.save(v)
+		var res = savable.save(v)
+		savable.is_saved = true
+		return res
 	end
 end
 
@@ -217,6 +257,7 @@ class DefaultModelSaver
 	do
 		var deps = (new Array[CompilationDependency]).as_fifo
 		for mclass in model.mclasses do
+			if not cc.is_alive(mclass) then continue
 			var dep = new SimpleDependency(mclass)
 			deps.add(dep)
 		end
@@ -231,6 +272,7 @@ end
 
 redef class MType
 	super SavableMEntity
+
 	redef fun meta_cstruct_type do return "struct typeinfo_t"
 
 	redef fun metatag_value(mmodule): Int
@@ -246,7 +288,7 @@ redef class MType
 end
 
 redef class MClassType
-	redef fun metainfo_uid do return "typeinfo_of_{mclass.c_name}"
+	redef fun metainfo_uid do return "typeinfo_of_{self.c_name}"
 
 	redef fun metatag_value(mmodule)
 	do
@@ -261,14 +303,20 @@ redef class MClassType
 	redef fun save(v)
 	do
 		var mmodule = v.compiler.mainmodule
+		var compiler = v.compiler
 		# Then new declaration
-                v.compiler.provide_declaration("{metainfo_uid}", "{self.full_metainfo_decl}")
-		v.require_declaration("type_{self.mclass.c_name}")
+                compiler.provide_declaration("{metainfo_uid}", "{self.full_metainfo_decl};")
 		v.require_declaration(mclass.metainfo_uid)
-
-		v.add_decl("{self.full_metainfo_decl} \{")
+		v.add_decl("{self.full_metainfo_decl} = \{")
 		v.add_decl("{self.metatag_value(mmodule)},")
-		v.add_decl("&type_{self.mclass.c_name},")
+
+		if not self.need_anchor and compiler.is_alive(self) then
+			v.require_declaration("type_{self.c_name}")
+			v.add_decl("&type_{self.mclass.c_name},")
+		else
+			v.add_decl("NULL, /*{self} is DEAD*/")
+		end
+
 		v.add_decl("&{mclass.metainfo_uid}")
 		# TODO: handle type arguments
 		v.add_decl("\};")
@@ -278,7 +326,6 @@ redef class MClassType
 		else
 			return null
 		end
-
 		# TODO: handle type arguments dependencies
 	end
 end
@@ -323,84 +370,105 @@ redef class MClass
 	do
 		var compiler = v.compiler
 		var mmodule = compiler.mainmodule
-
-		var mprops = self.collect_accessible_mproperties(mmodule, null)
 		var deps = new AggregateDependencies
-		# Some prerequisite
-		#v.require_declaration("const struct classinfo_t")
-		#v.require_declaration("const struct typeinfo_t")
-		#v.require_declaration("const struct propinfo_t")
-
-		# We require the declaration of the class we want to save
-		v.require_declaration("class_{self.c_name}")
-
+		var mpropdefs = most_specific_mpropdefs(mmodule)
 		# Then new declaration
-                compiler.provide_declaration("{metainfo_uid}", "{full_metainfo_decl}")
+                compiler.provide_declaration("{metainfo_uid}", "{full_metainfo_decl};")
 
 		# The instance
-		v.add_decl("{full_metainfo_decl} \{")
+		v.add_decl("{full_metainfo_decl} = \{")
 		v.add_decl("{metatag_value(mmodule)},")
-		v.add_decl("&class_{self.c_name},") # pointer to the reflected class
-
+		if compiler.is_alive(self) then
+			# We require the declaration of the class we want to save
+			v.require_declaration("class_{self.c_name}")
+			v.add_decl("&class_{self.c_name},") # pointer to the reflected class
+		else
+			v.add_decl("NULL, /*{self} is DEAD*/")
+		end
 		if self.arity > 0 then
 			v.require_declaration("typeinfo_table_{self.c_name}")
-			v.add_decl("&type_table_{self.c_name},")
-			var mtypes = self.get_mtype_cache.values
-			for mtype in mtypes do
-				deps.add(new SimpleDependency(mtype))
-			end
+			v.add_decl("(struct typeinfo_t**)typeinfo_table_{self.c_name},")
 		else
 			v.require_declaration("typeinfo_of_{self.c_name}")
 			# TODO: maybe not the good code
-			v.add_decl("&typeinfo_of_{self.c_name},")
+			v.add_decl("(struct typeinfo_t**)&typeinfo_of_{self.c_name},")
 			var mtype = self.mclass_type
 			deps.add(new SimpleDependency(mtype))
 		end
-		v.add_decl("\"{self.c_name}\",") # name of the reflected class
+		v.add_decl("\"{self.name}\",") # name of the reflected class
+		v.require_declaration("ancestor_table_{self.c_name}")
+		v.add_decl("(struct classinfo_t**)ancestor_table_{self.c_name},")
 
-		var mpropdefs = most_specific_mpropdefs(mmodule)
-
-		var property_table_strs = new Array[String]
+		# Save properties info
+		v.add_decl("\{")
 		for mpropdef in mpropdefs do
+			if mpropdef isa MVirtualTypeDef then continue
 			var mpropdef_decl = mpropdef
-			# TODO: remove the ',' when last item
-			property_table_strs.push("({mpropdef.meta_cstruct_type}*)&{mpropdef.metainfo_uid},")
+			v.require_declaration("{mpropdef.metainfo_uid}")
+			v.add_decl("(struct propinfo_t*)&{mpropdef.metainfo_uid},")
 			if not mpropdef.is_saved then
 				deps.add(new SimpleDependency(mpropdef))
 			end
 		end
-		v.add_decl("\{")
-		v.add_decl("{property_table_strs.join(",\n")}")
+		v.add_decl("NULL") # NULL terminated sequence
 		v.add_decl("\}")
 		v.add_decl("\};")
 
+		var subdep = save_ancestor_table(v)
+		deps.add(subdep)
 		if arity > 0 then
-			save_type_table(v)
+			var subdep2 = save_type_table(v)
+			deps.add(subdep2)
 		end
-		self.is_saved = true
 
 		# TODO: return dependencies
 		return deps
 	end
 
-	protected fun save_type_table(v: AbstractCompilerVisitor)
+	protected fun save_ancestor_table(v: AbstractCompilerVisitor): CompilationDependency
+	do
+		var compiler = v.compiler
+		var mmodule = compiler.mainmodule
+		var ancestors = self.collect_ancestors(mmodule, null)
+		var deps = new AggregateDependencies
+		var decl = "struct classinfo_t* ancestor_table_{self.c_name}[]"
+		v.compiler.provide_declaration("ancestor_table_{self.c_name}", "extern {decl};")
+		v.add_decl("{decl} = \{")
+		for ancestor in ancestors do
+			v.require_declaration("{ancestor.metainfo_uid}")
+			v.add_decl("&{ancestor.metainfo_uid},")
+			if not ancestor.is_saved then
+				deps.add(new SimpleDependency(ancestor))
+			end
+		end
+		v.add_decl("NULL") # NULL terminated sequence
+		v.add_decl("\};")
+		return deps
+
+	end
+
+	protected fun save_type_table(v: AbstractCompilerVisitor): CompilationDependency
 	do
 		var mtypes = self.get_mtype_cache.values
+		var deps = new AggregateDependencies
 		var decl = "struct typeinfo_t* typeinfo_table_{c_name}[]"
-		v.compiler.provide_declaration("typeinfo_table_{c_name}", "{decl}")
-		v.add_decl("{decl} \{")
-
-		var typeinfo_strs = new Array[String]
+		v.compiler.provide_declaration("typeinfo_table_{c_name}", "extern {decl};")
+		v.add_decl("{decl} = \{")
 		for mtype in mtypes do
-			typeinfo_strs.add("{mtype.metainfo_uid}")
+			v.require_declaration("{mtype.metainfo_uid}")
+			v.add_decl("&{mtype.metainfo_uid},")
+			if not mtype.is_saved then
+				deps.add(new SimpleDependency(mtype))
+			end
 		end
-		v.add_decl("{typeinfo_strs.join(",\n")}")
+		v.add_decl("NULL") # NULL terminated sequence
 		v.add_decl("\};")
+		return deps
 	end
 
 	fun most_specific_mpropdefs(mmodule: MModule): Collection[MPropDef]
 	do
-		var mprops = self.collect_accessible_mproperties(mmodule)
+		var mprops = self.collect_local_mproperties(null)
 		# Cache our properties
 		var res = new Array[MPropDef]
 		for mprop in mprops do
@@ -422,7 +490,7 @@ redef class MClass
 		var tag = 0x00000000
 		var metakind = 0 # it's a class kind, nothing to do
 		var arity = self.mparameters.length
-		var mproperties = self.collect_accessible_mproperties(mmodule, null)
+		var mproperties = self.collect_local_mproperties(null)
 		var kind = classkind_to_int(self.kind)
 		var visibility = visibility_to_int(self.visibility)
 		tag = tag | metakind # 3 bits
@@ -455,7 +523,7 @@ end
 
 redef class MAttributeDef
 
-	redef fun metainfo_uid do return "attrinfo_of_{mclass.c_name}_{c_name}"
+	redef fun metainfo_uid do return "attrinfo_of_{c_name}"
 	redef fun meta_cstruct_type do return "struct attrinfo_t"
 
 	redef fun save(v)
@@ -463,12 +531,9 @@ redef class MAttributeDef
 		var compiler = v.compiler
 		var mmodule = compiler.mainmodule
 		var static_mtype = self.static_mtype.as(not null)
-		compiler.provide_declaration("{metainfo_uid}", "{full_metainfo_decl}")
+		compiler.provide_declaration("{metainfo_uid}", "{full_metainfo_decl};")
 
                 # Some prerequisite
-		#v.require_declaration("const struct classinfo_t")
-		#v.require_declaration("const struct typeinfo_t")
-		#v.require_declaration("const struct attrinfo_t")
                 v.require_declaration("classinfo_of_{mclass.c_name}")
 
 		# TODO: v.require_declaration("typeinfo_of_{static_mtype.c_name}")
@@ -476,16 +541,22 @@ redef class MAttributeDef
 		## Then new declaration
 
 		## The instance
-		v.add_decl("{full_metainfo_decl} \{")
+		v.add_decl("{full_metainfo_decl} = \{")
                 v.add_decl("{metatag_value(mmodule)},")
-                v.add_decl("\"{c_name}\",")
-                v.add_decl("&classinfo_of_{mclass.c_name},")
-                v.add_decl("{const_color}")
+                v.add_decl("\"{self.name}\",")
+                v.add_decl("&{mclass.metainfo_uid},")
+		# NOTE: for debug
+		if compiler.has_color_for(self) then
+			#v.require_declaration(self.const_color)
+			#v.add_decl("{self.const_color}")
+			v.add_decl("-1 // TODO")
+		else
+			v.add_decl("-2 /*{self} has no color */")
+		end
 		# NOTE: don't forget to put back `,` at `const_color`
 		# TODO: v.add_decl("&typeinfo_of_{static_mtype.c_name}")
                 v.add_decl("\};")
 
-		self.is_saved = true
 		if mclass.is_saved then
 			return null
 		else
@@ -506,7 +577,7 @@ end
 
 redef class MMethodDef
 
-	redef fun metainfo_uid do return "methodinfo_of_{mclass.c_name}_{name}"
+	redef fun metainfo_uid do return "methodinfo_of_{c_name}"
 	redef fun meta_cstruct_type do return "struct methodinfo_t"
 
 	redef fun metatag_value(mmodule)
@@ -537,26 +608,28 @@ redef class MMethodDef
 	do
 		var compiler = v.compiler
 		var mmodule = compiler.mainmodule
-		compiler.provide_declaration("{metainfo_uid}", "{full_metainfo_decl}")
+		compiler.provide_declaration("{metainfo_uid}", "{full_metainfo_decl};")
 
                 # Some prerequisite
-		#v.require_declaration("const struct classinfo_t")
-		#v.require_declaration("const struct typeinfo_t")
-		#v.require_declaration("const struct attrinfo_t")
                 v.require_declaration("classinfo_of_{mclass.c_name}")
 
 		# TODO: add type signature requirements
 
 		## The instance
-		v.add_decl("{full_metainfo_decl} \{")
+		v.add_decl("{full_metainfo_decl} = \{")
                 v.add_decl("{metatag_value(mmodule)},")
-                v.add_decl("\"{c_name}\",")
+                v.add_decl("\"{self.name}\",")
                 v.add_decl("&classinfo_of_{mclass.c_name},")
-                v.add_decl("{const_color}")
+		#if compiler.has_color_for(self) then
+		#		v.require_declaration(self.const_color)
+		#	v.add_decl("{self.const_color}")
+		#else
+		v.add_decl("-1 /* {self} is dead */")
+			#end
+
 		# TODO: add signature persistence
                 v.add_decl("\};")
 
-		self.is_saved = true
 		if mclass.is_saved then
 			return null
 		else
@@ -581,14 +654,15 @@ redef class MVirtualTypeDef
 
 	redef fun save(v)
 	do
+		if is_saved then
+			print "saved twice for `{self}`"
+			abort
+		end
 		var compiler = v.compiler
 		var mmodule = compiler.mainmodule
-		compiler.provide_declaration("{metainfo_uid}", "{full_metainfo_decl}")
+		compiler.provide_declaration("{metainfo_uid}", "{full_metainfo_decl};")
 
                 # Some prerequisite
-		#v.require_declaration("const struct classinfo_t")
-		#v.require_declaration("const struct typeinfo_t")
-		#v.require_declaration("const struct attrinfo_t")
                 v.require_declaration("classinfo_of_{mclass.c_name}")
 
 		# TODO: add bound requirement
@@ -598,14 +672,13 @@ redef class MVirtualTypeDef
 		## Then new declaration
 
 		## The instance
-		v.add_decl("{full_metainfo_decl} \{")
+		v.add_decl("{full_metainfo_decl} = \{")
                 v.add_decl("{metatag_value(mmodule)},")
                 v.add_decl("\"{self.name}\",")
                 v.add_decl("&classinfo_of_{mclass.c_name}")
 		# TODO: add bound persistence
                 v.add_decl("\};")
 
-		self.is_saved = true
 		if mclass.is_saved then
 			return null
 		else
@@ -621,7 +694,6 @@ do
 	if visibility == public_visibility then return 1
 	if visibility == protected_visibility then return 2
 	if visibility == private_visibility then return 3
-	print visibility
 	abort
 end
 
