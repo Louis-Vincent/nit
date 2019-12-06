@@ -4,7 +4,6 @@ module default
 import runtime_internals_base
 private import model::model_collect
 
-
 class DefaultRuntimeInternals
 	super RuntimeInternalsFactory
 	redef fun meta_cstruct_provider(cc)
@@ -23,6 +22,13 @@ class DefaultCStructProvider
         protected var cc: AbstractCompiler
 	redef fun compile_metainfo_header_structs
 	do
+		#cc.provide_declaration("struct metainfo_t")
+		#cc.provide_declaration("struct propinfo_t")
+		#cc.provide_declaration("struct attrinfo_t")
+		#cc.provide_declaration("struct methodinfo_t")
+		#cc.provide_declaration("struct vtypeinfo_t")
+		#cc.provide_declaration("struct classinfo_t")
+		#cc.provide_declaration("struct typeinfo_t")
 		cc.header.add_decl("""
 struct metainfo_t {
 unsigned int metatag;
@@ -39,7 +45,7 @@ unsigned int metatag;
 const char* name;
 const struct classinfo_t* classinfo;
 const int color;
-const struct typeinfo_t* static_type;
+//const struct typeinfo_t* static_type;
 };
 
 struct methodinfo_t {
@@ -47,7 +53,7 @@ unsigned int metatag;
 const char* name;
 const struct classinfo_t* classinfo;
 const int color;
-const struct typeinfo_t* signature[];
+//const struct typeinfo_t* signature[];
 };
 
 /*
@@ -60,7 +66,7 @@ struct vtypeinfo_t {
 unsigned int metatag;
 const char* name;
 const struct classinfo_t* classinfo;
-const struct typeinfo_t* static_type;
+//const struct typeinfo_t* static_type;
 };
 
 struct classinfo_t {
@@ -77,7 +83,7 @@ struct typeinfo_t {
 unsigned int metatag;
 struct type* type_ptr; /* This type_ptr might be null if instance_TypeInfo is a static type */
 const struct classinfo_t* classinfo;
-const struct typeinfo_t* type_arguments[];
+//const struct typeinfo_t* type_arguments[];
 };
 """)
 	end
@@ -119,7 +125,7 @@ end
 # Shared meta info for `PropertyInfo` :
 # 32 bits: 0000 0000 0000 0000 0000 0000 0qqv vmmm
 # m = meta kind
-# v = visibility (public (0), protected (1), private (10))
+# v = visibility (none (0), public (1), protected (10), private (11))
 # q = qualifier (none (0), abstract (1), intern (10), extern (11))
 #
 # `AttributeInfo` meta structure :
@@ -138,7 +144,9 @@ end
 abstract class SavableMEntity
 	var is_saved: Bool is protected writable
 	fun metatag_value(mmodule: MModule): Int is abstract
-	fun compile_metatag_to_c(v: AbstractCompilerVisitor) is abstract
+	fun meta_cstruct_type: String is abstract
+	fun metainfo_uid: String is abstract
+	fun full_metainfo_decl: String do return "{meta_cstruct_type} {metainfo_uid}"
 	fun save(v: AbstractCompilerVisitor): nullable CompilationDependency do return null
 end
 
@@ -179,27 +187,26 @@ class AggregateDependencies
 	redef fun resolve_dependency(cc)
 	do
 		if is_out_of_date then return null
-		var aggregate = new AggregateDependencies
+		var res = new AggregateDependencies
 		for dep in dependencies do
 			if dep.is_out_of_date then continue
 			var new_dep = dep.resolve_dependency(cc)
 			if new_dep != null then
-				aggregate.add(new_dep)
+				res.add(new_dep)
 			end
 		end
-		if aggregate.is_out_of_date then
+		if res.is_out_of_date then
 			return null
 		else
-			return aggregate
+			return res
 		end
 	end
 
 	fun add(dep: CompilationDependency)
-	is
-		expect(not dep.is_out_of_date)
 	do
 		dependencies.add(dep)
 	end
+
 end
 
 class DefaultModelSaver
@@ -208,29 +215,25 @@ class DefaultModelSaver
 
 	redef fun save_model(model)
 	do
-		var dependencies = (new Array[CompilationDependency]).as_fifo
+		var deps = (new Array[CompilationDependency]).as_fifo
 		for mclass in model.mclasses do
 			var dep = new SimpleDependency(mclass)
-			dependencies.add(dep)
+			deps.add(dep)
 		end
 
-		while not dependencies.is_empty do
-			var dep = dependencies.take
-			if dep.is_out_of_date then
-				continue
-			else
-				var new_dep = dep.resolve_dependency(cc)
-				if new_dep != null then
-					dependencies.add(new_dep)
-				end
-			end
+		while not deps.is_empty do
+			var dep = deps.take
+			var new_dep = dep.resolve_dependency(cc)
+			if new_dep != null then deps.add(new_dep)
 		end
 	end
 end
 
 redef class MType
 	super SavableMEntity
-	fun commun_metatag: Int
+	redef fun meta_cstruct_type do return "struct typeinfo_t"
+
+	redef fun metatag_value(mmodule): Int
 	do
 		var tag = 0
 		var metakind = 1
@@ -240,12 +243,12 @@ redef class MType
 		tag = tag | metakind
 		return tag
 	end
-	redef fun compile_metatag_to_c(v) do v.add_decl("{commun_metatag};")
 end
 
 redef class MClassType
+	redef fun metainfo_uid do return "typeinfo_of_{mclass.c_name}"
 
-	redef fun commun_metatag
+	redef fun metatag_value(mmodule)
 	do
 		var tag = super
 		var kind = 0
@@ -254,10 +257,35 @@ redef class MClassType
 		tag = tag | (arguments.length << 5)
 		return tag
 	end
+
+	redef fun save(v)
+	do
+		var mmodule = v.compiler.mainmodule
+		# Then new declaration
+                v.compiler.provide_declaration("{metainfo_uid}", "{self.full_metainfo_decl}")
+		v.require_declaration("type_{self.mclass.c_name}")
+		v.require_declaration(mclass.metainfo_uid)
+
+		v.add_decl("{self.full_metainfo_decl} \{")
+		v.add_decl("{self.metatag_value(mmodule)},")
+		v.add_decl("&type_{self.mclass.c_name},")
+		v.add_decl("&{mclass.metainfo_uid}")
+		# TODO: handle type arguments
+		v.add_decl("\};")
+
+		if not mclass.is_saved then
+			return new SimpleDependency(self.mclass)
+		else
+			return null
+		end
+
+		# TODO: handle type arguments dependencies
+	end
 end
 
 redef class MFormalType
-	redef fun commun_metatag
+
+	redef fun metatag_value(mmodule)
 	do
 		var tag = super
 		var is_formal = 1
@@ -265,18 +293,31 @@ redef class MFormalType
 	end
 end
 
+redef class MParameterType
+	redef fun metainfo_uid do return "typeinfo_of_{mclass.c_name}"
+	# TODO
+	redef fun meta_cstruct_type do return ""
+end
+
 redef class MNullableType
-	redef fun commun_metatag
+	redef fun metainfo_uid do return "{mtype.metainfo_uid}_nullable"
+
+	redef fun metatag_value(mmodule)
 	do
-		var tag = mtype.commun_metatag
+		var tag = mtype.metatag_value(mmodule)
 		var nullble = 1
 		# 12 = 3 metakind + 2 type kind + 7 arity
 		return tag | (nullble << 12)
 	end
+
+	redef fun save(v) do return mtype.save(v)
 end
 
 redef class MClass
 	super SavableMEntity
+
+	redef fun metainfo_uid do return "classinfo_of_{c_name}"
+	redef fun meta_cstruct_type do return "struct classinfo_t"
 
 	redef fun save(v)
 	do
@@ -284,52 +325,77 @@ redef class MClass
 		var mmodule = compiler.mainmodule
 
 		var mprops = self.collect_accessible_mproperties(mmodule, null)
-		var mtypes = self.get_mtype_cache.values
-
+		var deps = new AggregateDependencies
 		# Some prerequisite
-		v.require_declaration("const struct classinfo_t")
-		v.require_declaration("const struct typeinfo_t")
-                v.require_declaration("const struct propinfo_t")
+		#v.require_declaration("const struct classinfo_t")
+		#v.require_declaration("const struct typeinfo_t")
+		#v.require_declaration("const struct propinfo_t")
 
 		# We require the declaration of the class we want to save
 		v.require_declaration("class_{self.c_name}")
 
-		if self.arity > 0 then
-			v.require_declaration("typeinfo_table_{self.c_name}")
-		else
-			v.require_declaration("typeinfo_of_{self.c_name}")
-		end
-
-                var decl = "struct classinfo_t classinfo_of_{c_name}"
-
 		# Then new declaration
-                compiler.provide_declaration("classinfo_of_{c_name}", decl)
+                compiler.provide_declaration("{metainfo_uid}", "{full_metainfo_decl}")
 
 		# The instance
-		v.add_decl("{decl} \{")
+		v.add_decl("{full_metainfo_decl} \{")
 		v.add_decl("{metatag_value(mmodule)},")
 		v.add_decl("&class_{self.c_name},") # pointer to the reflected class
 
 		if self.arity > 0 then
+			v.require_declaration("typeinfo_table_{self.c_name}")
 			v.add_decl("&type_table_{self.c_name},")
+			var mtypes = self.get_mtype_cache.values
+			for mtype in mtypes do
+				deps.add(new SimpleDependency(mtype))
+			end
 		else
+			v.require_declaration("typeinfo_of_{self.c_name}")
 			# TODO: maybe not the good code
 			v.add_decl("&typeinfo_of_{self.c_name},")
+			var mtype = self.mclass_type
+			deps.add(new SimpleDependency(mtype))
 		end
 		v.add_decl("\"{self.c_name}\",") # name of the reflected class
 
 		var mpropdefs = most_specific_mpropdefs(mmodule)
 
+		var property_table_strs = new Array[String]
 		for mpropdef in mpropdefs do
-			#var mpropdef_decl = mpropdef.c_meta_declaration
+			var mpropdef_decl = mpropdef
 			# TODO: remove the ',' when last item
-			#v.add_decl("(propinfo_t*)&{mpropdef_decl},")
+			property_table_strs.push("({mpropdef.meta_cstruct_type}*)&{mpropdef.metainfo_uid},")
+			if not mpropdef.is_saved then
+				deps.add(new SimpleDependency(mpropdef))
+			end
 		end
+		v.add_decl("\{")
+		v.add_decl("{property_table_strs.join(",\n")}")
 		v.add_decl("\}")
+		v.add_decl("\};")
+
+		if arity > 0 then
+			save_type_table(v)
+		end
 		self.is_saved = true
 
 		# TODO: return dependencies
-		return null
+		return deps
+	end
+
+	protected fun save_type_table(v: AbstractCompilerVisitor)
+	do
+		var mtypes = self.get_mtype_cache.values
+		var decl = "struct typeinfo_t* typeinfo_table_{c_name}[]"
+		v.compiler.provide_declaration("typeinfo_table_{c_name}", "{decl}")
+		v.add_decl("{decl} \{")
+
+		var typeinfo_strs = new Array[String]
+		for mtype in mtypes do
+			typeinfo_strs.add("{mtype.metainfo_uid}")
+		end
+		v.add_decl("{typeinfo_strs.join(",\n")}")
+		v.add_decl("\};")
 	end
 
 	fun most_specific_mpropdefs(mmodule: MModule): Collection[MPropDef]
@@ -371,6 +437,8 @@ end
 redef class MPropDef
 	super SavableMEntity
 
+	fun mclass: MClass do return mproperty.intro_mclassdef.mclass
+
 	redef fun metatag_value(mmodule)
 	do
 		var tag = 0x00000000
@@ -387,37 +455,44 @@ end
 
 redef class MAttributeDef
 
-	fun mclass: MClass do return mproperty.intro_mclassdef.mclass
+	redef fun metainfo_uid do return "attrinfo_of_{mclass.c_name}_{c_name}"
+	redef fun meta_cstruct_type do return "struct attrinfo_t"
 
 	redef fun save(v)
 	do
 		var compiler = v.compiler
 		var mmodule = compiler.mainmodule
 		var static_mtype = self.static_mtype.as(not null)
+		compiler.provide_declaration("{metainfo_uid}", "{full_metainfo_decl}")
 
                 # Some prerequisite
-		v.require_declaration("const struct classinfo_t")
-		v.require_declaration("const struct typeinfo_t")
-                v.require_declaration("const struct attrinfo_t")
+		#v.require_declaration("const struct classinfo_t")
+		#v.require_declaration("const struct typeinfo_t")
+		#v.require_declaration("const struct attrinfo_t")
                 v.require_declaration("classinfo_of_{mclass.c_name}")
-                v.require_declaration("typeinfo_of_{static_mtype.c_name}")
 
-		var decl = "struct attrinfo_t attrinfo_of_{self.c_name}"
+		# TODO: v.require_declaration("typeinfo_of_{static_mtype.c_name}")
+
 		## Then new declaration
-		compiler.provide_declaration("attrinfo_of_{c_name}", "{decl}")
 
 		## The instance
-		v.add_decl("{decl} \{")
+		v.add_decl("{full_metainfo_decl} \{")
                 v.add_decl("{metatag_value(mmodule)},")
                 v.add_decl("\"{c_name}\",")
                 v.add_decl("&classinfo_of_{mclass.c_name},")
-                v.add_decl("{const_color},")
-                v.add_decl("&typeinfo_of_{static_mtype.c_name}")
+                v.add_decl("{const_color}")
+		# NOTE: don't forget to put back `,` at `const_color`
+		# TODO: v.add_decl("&typeinfo_of_{static_mtype.c_name}")
                 v.add_decl("\};")
 
 		self.is_saved = true
-		# TODO: return dependencies
-		return null
+		if mclass.is_saved then
+			return null
+		else
+			return new SimpleDependency(mclass)
+		end
+
+		# TODO: add type static dependency
 	end
 
 	redef fun metatag_value(mmodule)
@@ -430,6 +505,9 @@ redef class MAttributeDef
 end
 
 redef class MMethodDef
+
+	redef fun metainfo_uid do return "methodinfo_of_{mclass.c_name}_{name}"
+	redef fun meta_cstruct_type do return "struct methodinfo_t"
 
 	redef fun metatag_value(mmodule)
 	do
@@ -454,9 +532,44 @@ redef class MMethodDef
 		tag = tag | (has_return << 10)
                 return tag
 	end
+
+	redef fun save(v)
+	do
+		var compiler = v.compiler
+		var mmodule = compiler.mainmodule
+		compiler.provide_declaration("{metainfo_uid}", "{full_metainfo_decl}")
+
+                # Some prerequisite
+		#v.require_declaration("const struct classinfo_t")
+		#v.require_declaration("const struct typeinfo_t")
+		#v.require_declaration("const struct attrinfo_t")
+                v.require_declaration("classinfo_of_{mclass.c_name}")
+
+		# TODO: add type signature requirements
+
+		## The instance
+		v.add_decl("{full_metainfo_decl} \{")
+                v.add_decl("{metatag_value(mmodule)},")
+                v.add_decl("\"{c_name}\",")
+                v.add_decl("&classinfo_of_{mclass.c_name},")
+                v.add_decl("{const_color}")
+		# TODO: add signature persistence
+                v.add_decl("\};")
+
+		self.is_saved = true
+		if mclass.is_saved then
+			return null
+		else
+			return new SimpleDependency(mclass)
+		end
+		# TODO: add type dependencies
+	end
 end
 
 redef class MVirtualTypeDef
+
+	redef fun meta_cstruct_type do return "struct vtypeinfo_t"
+	redef fun metainfo_uid do return "vtypeinfo_of_{mclass.c_name}_{name}"
 
 	redef fun metatag_value(mmodule)
 	do
@@ -465,13 +578,50 @@ redef class MVirtualTypeDef
 		tag = tag | metakind
                 return tag
 	end
+
+	redef fun save(v)
+	do
+		var compiler = v.compiler
+		var mmodule = compiler.mainmodule
+		compiler.provide_declaration("{metainfo_uid}", "{full_metainfo_decl}")
+
+                # Some prerequisite
+		#v.require_declaration("const struct classinfo_t")
+		#v.require_declaration("const struct typeinfo_t")
+		#v.require_declaration("const struct attrinfo_t")
+                v.require_declaration("classinfo_of_{mclass.c_name}")
+
+		# TODO: add bound requirement
+
+		# The c_name is artificial since virtual type doesn't normally
+		# exist at runtime.
+		## Then new declaration
+
+		## The instance
+		v.add_decl("{full_metainfo_decl} \{")
+                v.add_decl("{metatag_value(mmodule)},")
+                v.add_decl("\"{self.name}\",")
+                v.add_decl("&classinfo_of_{mclass.c_name}")
+		# TODO: add bound persistence
+                v.add_decl("\};")
+
+		self.is_saved = true
+		if mclass.is_saved then
+			return null
+		else
+			return new SimpleDependency(mclass)
+		end
+		# TODO: add bound dependency
+	end
 end
 
 private fun visibility_to_int(visibility: MVisibility): Int
 do
-	if visibility == public_visibility then return 0
-	if visibility == protected_visibility then return 1
-	if visibility == private_visibility then return 2
+	if visibility == none_visibility then return 0
+	if visibility == public_visibility then return 1
+	if visibility == protected_visibility then return 2
+	if visibility == private_visibility then return 3
+	print visibility
 	abort
 end
 

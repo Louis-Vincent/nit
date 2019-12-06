@@ -50,19 +50,62 @@ class SeparateMetaCompiler
 	super SeparateCompiler
 	private var rti: RuntimeInternalsFactory
 	private var mcp: MetaCStructProvider is noinit
-
+	private var rta_bak: nullable RapidTypeAnalysis = null
+	protected var meta_mclasses: Collection[MClass] is noinit
 	init
 	do
 		mcp = rti.meta_cstruct_provider(self)
+		var classinfo = get_mclass("ClassInfo")
+		var typeinfo = get_mclass("TypeInfo")
+		var attrinfo = get_mclass("AttributeInfo")
+		var methodinfo = get_mclass("MethodInfo")
+		var vtypeinfo = get_mclass("VirtualTypeInfo")
+		self.meta_mclasses = [classinfo, typeinfo, attrinfo, methodinfo, vtypeinfo]
+		var rta = self.runtime_type_analysis
+		if rta != null then
+			for mclass in self.meta_mclasses do
+				# NOTE: might be useless or incomplete
+				rta.live_classes.add(mclass)
+			end
+		end
+	end
+
+	# Unsafely tries to get a `MClass` by name
+	protected fun get_mclass(classname: String): MClass
+	do
+		var model = self.mainmodule.model
+		var mclasses = model.get_mclasses_by_name(classname)
+		assert mclasses != null and mclasses.length == 1
+		return mclasses.first
 	end
 
 	redef fun do_compilation
 	do
+		self.rta_bak = self.runtime_type_analysis
+		self.runtime_type_analysis = null
 		super
+		# This next line of code may be useless, since
+		# after compile_types, self.rta will be back to
+		# the original instance since compile_types is the last
+		# procedure call in super def.
+		self.runtime_type_analysis = self.rta_bak
 		var c_name = mainmodule.c_name
 		self.new_file("{c_name}.meta")
 		var ms = rti.model_saver(self)
 		ms.save_model(self.mainmodule.model)
+	end
+
+	redef fun compile_types
+	do
+		# NOTE: temporal dependency
+		self.runtime_type_analysis = self.rta_bak
+		for mclass in self.meta_mclasses do
+			var mtype = mclass.mclass_type
+			# Gotta bypass that sweet rta analysis
+			runtime_type_analysis.live_types.add(mtype)
+			runtime_type_analysis.live_cast_types.add(mtype)
+		end
+		super
 	end
 
 	redef fun compile_header_structs do
