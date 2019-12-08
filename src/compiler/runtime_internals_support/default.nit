@@ -27,60 +27,60 @@ struct metainfo_t {
 unsigned int metatag;
 };
 
+struct typeinfo_t {
+unsigned int metatag;
+const struct classinfo_t* classinfo;
+};
+
 struct propinfo_t {
 unsigned int metatag;
-const char* name;
 const struct classinfo_t* classinfo;
+const char* name;
 };
 
 struct attrinfo_t {
 unsigned int metatag;
-const char* name;
 const struct classinfo_t* classinfo;
+const char* name;
 const int color;
 //const struct typeinfo_t* static_type;
 };
 
 struct methodinfo_t {
 unsigned int metatag;
-const char* name;
 const struct classinfo_t* classinfo;
+const char* name;
 const int color;
 //const struct typeinfo_t* signature[];
 };
 
 /*
 This structure is shared by virtual types and parameter types.
-In this implementation, any type parameter share the same base structure as
-`propinfo_t`. Morever, they are stored inside the same `props[]` array inside<
-`instance_ClassInfo`.
+mix: typeinfo_t + propinfo_t
 */
-struct vtypeinfo_t {
+struct formaltypeinfo_t {
 unsigned int metatag;
-const char* name;
 const struct classinfo_t* classinfo;
-//const struct typeinfo_t* static_type;
+const char* name;
+//const struct typeinfo_t* bound;
+};
+
+struct classtypeinfo_t {
+unsigned int metatag;
+const struct classinfo_t* classinfo;
+const struct type* type; // NULL if dead or static
+//const struct typeinfo_t* targs[];
 };
 
 struct classinfo_t {
 unsigned int metatag;
 const struct class* class_ptr;
 /* if `self` is not generic, then `typeinfo_table` points directly to its type*/
-struct typeinfo_t** typeinfo_table;
+struct classtypeinfo_t** typeinfo_table;
 const char* name;
 /* We always store type parameters first if any*/
 struct classinfo_t** ancestors;
 const struct propinfo_t* props[];
-};
-
-struct typeinfo_t {
-unsigned int metatag;
-/* This type_ptr might be null if it describes a static type or
-is an unhardened open type.
-*/
-const struct type* type_ptr;
-const struct classinfo_t* classinfo;
-//const struct typeinfo_t* type_arguments[];
 };
 """)
 	end
@@ -91,23 +91,26 @@ end
 # This class provide a standard way of describing meta entities.
 # NOTE: this class is tightly coupled with the runtime internals implementation.
 
-# There are 5 meta structures = 3 bits called the `meta kind`
+# There are 6 meta structures = 3 bits, called the `meta kind`
 #
-# - `000` = class kind
-# - `001` = type kind
-# - `010` = attribute kind
-# - `011` = method kind
-# - `100` = virtual type kind
+# - `000` = class
+# - `001` = classtype
+# - `010` = type parameter
+# - `011` = virtual type
+# - `100` = attribute
+# - `101` = method
+
 #
 # 32 bits: 0000 0000 0000 0000 0000 0000 0000 0000
 #
 # `ClassInfo` meta structure :
-# 32 bits: 0000 000p pppp pppp pvvk kkaa aaaa ammm
+# 32 bits: 0000 00pp pppp pppp Avvk kkaa aaaa ammm
 # m = meta kind
 # a = arity = number of formal parameters (maximum of 128)
 # k = kind of class (concrete (0), abstract (1), interface (10),
 # enum (11), extern (100), subset (101))
 # v = visibility (public (0) or private (10))
+# A = direct descendant of Object (1=yes, 0=no)
 # p = properties = number of property (maximum of 1024)
 # 0 = unused space = could be use to store larger amount of `p`
 #
@@ -140,7 +143,21 @@ end
 # x = inherited from `PropertyInfo` meta structure
 abstract class SavableMEntity
 	var is_saved: Bool is protected writable
-	fun metatag_value(mmodule: MModule): Int is abstract
+	fun metatag_value(mmodule: MModule): Int
+	do
+		# NOTE: is not a good pratice to hardcode `if`s with type
+		# and I could use polymorphism. However, at this stage of
+		# development, the metakind of each savable entity change
+		# too much. By choosing the metakind here, we avoid changing
+		# the code everywhere in the file.
+		# TODO: replace this with polymorphism (when stable)
+		if self isa MClassType then return 1
+		if self isa MParameterType then return 2
+		if self isa MVirtualTypeDef then return 3
+		if self isa MAttributeDef then return 4
+		if self isa MMethodDef then return 5
+		return 0
+	end
 	fun meta_cstruct_type: String is abstract
 	fun metainfo_uid: String is abstract
 	fun full_metainfo_decl: String do return "{meta_cstruct_type} {metainfo_uid}"
@@ -273,29 +290,18 @@ end
 redef class MType
 	super SavableMEntity
 
-	redef fun meta_cstruct_type do return "struct typeinfo_t"
-
-	redef fun metatag_value(mmodule): Int
-	do
-		var tag = 0
-		var metakind = 1
-		# NOTE: this is useless a operation and we could return 1, but
-		# to be more uniformed with the rest of the code I keep it more
-		# verbose.
-		tag = tag | metakind
-		return tag
-	end
+	#redef fun meta_cstruct_type do return "struct typeinfo_t"
 end
 
 redef class MClassType
-	redef fun metainfo_uid do return "typeinfo_of_{self.c_name}"
+	redef fun meta_cstruct_type do return "struct classtypeinfo_t"
+	redef fun metainfo_uid do return "classtypeinfo_of_{self.c_name}"
 
 	redef fun metatag_value(mmodule)
 	do
 		var tag = super
-		var kind = 0
-		if self.need_anchor then kind = 1
-		tag = tag | (kind << 3)
+		var is_open = self.need_anchor.to_i
+		tag = tag | (is_open << 3)
 		tag = tag | (arguments.length << 5)
 		return tag
 	end
@@ -309,15 +315,15 @@ redef class MClassType
 		v.require_declaration(mclass.metainfo_uid)
 		v.add_decl("{self.full_metainfo_decl} = \{")
 		v.add_decl("{self.metatag_value(mmodule)},")
+		v.add_decl("&{mclass.metainfo_uid},")
 
 		if not self.need_anchor and compiler.is_alive(self) then
 			v.require_declaration("type_{self.c_name}")
-			v.add_decl("&type_{self.mclass.c_name},")
+			v.add_decl("&type_{self.mclass.c_name}")
 		else
-			v.add_decl("NULL, /*{self} is DEAD*/")
+			v.add_decl("NULL /*{self} is DEAD*/")
 		end
 
-		v.add_decl("&{mclass.metainfo_uid}")
 		# TODO: handle type arguments
 		v.add_decl("\};")
 
@@ -332,6 +338,8 @@ end
 
 redef class MFormalType
 
+	redef fun meta_cstruct_type do return "struct formaltypeinfo_t"
+
 	redef fun metatag_value(mmodule)
 	do
 		var tag = super
@@ -341,9 +349,7 @@ redef class MFormalType
 end
 
 redef class MParameterType
-	redef fun metainfo_uid do return "typeinfo_of_{mclass.c_name}"
-	# TODO
-	redef fun meta_cstruct_type do return ""
+	redef fun metainfo_uid do return "typeparam_of_{mclass.c_name}_{name}"
 end
 
 redef class MNullableType
@@ -372,12 +378,13 @@ redef class MClass
 		var mmodule = compiler.mainmodule
 		var deps = new AggregateDependencies
 		var mpropdefs = most_specific_mpropdefs(mmodule)
+		var metatag = self.metatag_value(mmodule)
 		# Then new declaration
                 compiler.provide_declaration("{metainfo_uid}", "{full_metainfo_decl};")
 
 		# The instance
 		v.add_decl("{full_metainfo_decl} = \{")
-		v.add_decl("{metatag_value(mmodule)},")
+		v.add_decl("{metatag},")
 		if compiler.is_alive(self) then
 			# We require the declaration of the class we want to save
 			v.require_declaration("class_{self.c_name}")
@@ -387,22 +394,34 @@ redef class MClass
 		end
 		if self.arity > 0 then
 			v.require_declaration("typeinfo_table_{self.c_name}")
-			v.add_decl("(struct typeinfo_t**)typeinfo_table_{self.c_name},")
+			v.add_decl("(struct classtypeinfo_t**)typeinfo_table_{self.c_name},")
 		else
-			v.require_declaration("typeinfo_of_{self.c_name}")
-			# TODO: maybe not the good code
-			v.add_decl("(struct typeinfo_t**)&typeinfo_of_{self.c_name},")
 			var mtype = self.mclass_type
+			v.require_declaration("{mtype.metainfo_uid}")
+			# TODO: maybe not the good code
+			v.add_decl("(struct classtypeinfo_t**)&{mtype.metainfo_uid},")
 			deps.add(new SimpleDependency(mtype))
 		end
+
 		v.add_decl("\"{self.name}\",") # name of the reflected class
+
+		# If is direct child of object, we don't need to create an ancestor
+		# table. The number 15 is the position of `A` bit flag, a.k.a
+		# `is_direct_child_of_object`.
+		# TODO: optimize ancestor_table
+		#if (metatag & (1 << (15-1))).is_odd then
+		#	var object_class = mmodule.get_primitive_class("Object")
+		#	v.require_declaration("{object_class.metainfo_uid}")
+		#	v.add_decl("(struct classinfo_t**)&{object_class.metainfo_uid}"
+		#else
 		v.require_declaration("ancestor_table_{self.c_name}")
 		v.add_decl("(struct classinfo_t**)ancestor_table_{self.c_name},")
+		#end
 
 		# Save properties info
 		v.add_decl("\{")
 		for mpropdef in mpropdefs do
-			if mpropdef isa MVirtualTypeDef then continue
+			#if mpropdef isa MVirtualTypeDef then continue
 			var mpropdef_decl = mpropdef
 			v.require_declaration("{mpropdef.metainfo_uid}")
 			v.add_decl("(struct propinfo_t*)&{mpropdef.metainfo_uid},")
@@ -421,7 +440,6 @@ redef class MClass
 			deps.add(subdep2)
 		end
 
-		# TODO: return dependencies
 		return deps
 	end
 
@@ -451,7 +469,7 @@ redef class MClass
 	do
 		var mtypes = self.get_mtype_cache.values
 		var deps = new AggregateDependencies
-		var decl = "struct typeinfo_t* typeinfo_table_{c_name}[]"
+		var decl = "struct classtypeinfo_t* typeinfo_table_{c_name}[]"
 		v.compiler.provide_declaration("typeinfo_table_{c_name}", "extern {decl};")
 		v.add_decl("{decl} = \{")
 		for mtype in mtypes do
@@ -469,16 +487,9 @@ redef class MClass
 	fun most_specific_mpropdefs(mmodule: MModule): Collection[MPropDef]
 	do
 		var mprops = self.collect_local_mproperties(null)
-		# Cache our properties
 		var res = new Array[MPropDef]
+		var mtype = self.intro.bound_mtype
 		for mprop in mprops do
-			# Get the most specific implementation
-			var mtype = self.mclass_type
-			# First, we need to make sure mtype doesn't need an anchor,
-			# otherwise we can't call `lookup_first_definition`.
-			if mtype.need_anchor then
-				mtype = self.intro.bound_mtype
-			end
 			var mpropdef = mprop.lookup_first_definition(mmodule, mtype)
 			res.push(mpropdef)
 		end
@@ -487,17 +498,19 @@ redef class MClass
 
 	redef fun metatag_value(mmodule)
 	do
-		var tag = 0x00000000
-		var metakind = 0 # it's a class kind, nothing to do
+		var tag = super
 		var arity = self.mparameters.length
 		var mproperties = self.collect_local_mproperties(null)
 		var kind = classkind_to_int(self.kind)
 		var visibility = visibility_to_int(self.visibility)
-		tag = tag | metakind # 3 bits
+		var object_class = mmodule.get_primitive_class("Object")
+		var direct_childs_of_object = object_class.collect_children(mmodule, null)
+		var is_child_of_object = direct_childs_of_object.has(self).to_i
 		tag = tag | (arity << 3) # 7 bits => 3 + 7 = 10
 		tag = tag | (kind << 10) # 3 bits => 10 + 3 + 13
 		tag = tag | (visibility << 13) # 1 bits => 13 + 2 = 15
-		tag = tag | (mproperties.length << 15)
+		tag = tag | (is_child_of_object << 15) # 1 bits => 15 + 1 = 16
+		tag = tag | (mproperties.length << 16)
                 return tag
 	end
 end
@@ -505,16 +518,14 @@ end
 redef class MPropDef
 	super SavableMEntity
 
-	fun mclass: MClass do return mproperty.intro_mclassdef.mclass
+	fun mclass: MClass do return self.mclassdef.mclass
 
 	redef fun metatag_value(mmodule)
 	do
-		var tag = 0x00000000
-		var metakind = 0 # we don't know yet
+		var tag = super
 		var visibility = visibility_to_int(self.visibility)
 		var qualifier =  0
 
-		tag = tag | metakind
 		tag = tag | (visibility << 3)
 		tag = tag | (qualifier << 5)
 		return tag
@@ -543,8 +554,8 @@ redef class MAttributeDef
 		## The instance
 		v.add_decl("{full_metainfo_decl} = \{")
                 v.add_decl("{metatag_value(mmodule)},")
-                v.add_decl("\"{self.name}\",")
                 v.add_decl("&{mclass.metainfo_uid},")
+		v.add_decl("\"{self.name}\",")
 		# NOTE: for debug
 		if compiler.has_color_for(self) then
 			#v.require_declaration(self.const_color)
@@ -565,14 +576,6 @@ redef class MAttributeDef
 
 		# TODO: add type static dependency
 	end
-
-	redef fun metatag_value(mmodule)
-	do
-		var tag = super
-		var metakind = 2
-		tag = tag | metakind
-                return tag
-	end
 end
 
 redef class MMethodDef
@@ -590,7 +593,6 @@ redef class MMethodDef
 		if self.is_extern then qualifier = 3
 		tag = tag | (qualifier << 5)
 
-		var metakind = 3
 		var msignature = self.msignature
 		var arity = 0
 		var has_return = if msignature?.return_mtype != null then 1 else 0
@@ -598,7 +600,6 @@ redef class MMethodDef
 			arity = msignature.mparameters.length
 			assert arity <= 127
 		end
-		tag = tag | metakind
 		tag = tag | (arity << 3)
 		tag = tag | (has_return << 10)
                 return tag
@@ -618,14 +619,9 @@ redef class MMethodDef
 		## The instance
 		v.add_decl("{full_metainfo_decl} = \{")
                 v.add_decl("{metatag_value(mmodule)},")
-                v.add_decl("\"{self.name}\",")
-                v.add_decl("&classinfo_of_{mclass.c_name},")
-		#if compiler.has_color_for(self) then
-		#		v.require_declaration(self.const_color)
-		#	v.add_decl("{self.const_color}")
-		#else
+                v.add_decl("&{mclass.metainfo_uid},")
+		v.add_decl("\"{self.name}\",")
 		v.add_decl("-1 /* {self} is dead */")
-			#end
 
 		# TODO: add signature persistence
                 v.add_decl("\};")
@@ -640,24 +636,15 @@ redef class MMethodDef
 end
 
 redef class MVirtualTypeDef
-
-	redef fun meta_cstruct_type do return "struct vtypeinfo_t"
 	redef fun metainfo_uid do return "vtypeinfo_of_{mclass.c_name}_{name}"
 
-	redef fun metatag_value(mmodule)
+	redef fun meta_cstruct_type
 	do
-		var tag = super
-		var metakind = 4
-		tag = tag | metakind
-                return tag
+		return self.mproperty.mvirtualtype.meta_cstruct_type
 	end
 
 	redef fun save(v)
 	do
-		if is_saved then
-			print "saved twice for `{self}`"
-			abort
-		end
 		var compiler = v.compiler
 		var mmodule = compiler.mainmodule
 		compiler.provide_declaration("{metainfo_uid}", "{full_metainfo_decl};")
@@ -674,8 +661,8 @@ redef class MVirtualTypeDef
 		## The instance
 		v.add_decl("{full_metainfo_decl} = \{")
                 v.add_decl("{metatag_value(mmodule)},")
-                v.add_decl("\"{self.name}\",")
-                v.add_decl("&classinfo_of_{mclass.c_name}")
+                v.add_decl("&{mclass.metainfo_uid},")
+		v.add_decl("\"{self.name}\",")
 		# TODO: add bound persistence
                 v.add_decl("\};")
 
