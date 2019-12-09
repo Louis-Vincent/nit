@@ -55,7 +55,7 @@ unsigned int metatag;
 const struct classinfo_t* classinfo;
 const char* name;
 const int color;
-//const struct typeinfo_t* signature[];
+const struct typeinfo_t* signature[];
 };
 
 /*
@@ -73,7 +73,8 @@ struct classtypeinfo_t {
 unsigned int metatag;
 const struct classinfo_t* classinfo;
 const struct type* type; // NULL if dead or static
-//const struct typeinfo_t* targs[];
+const struct typeinfo_t** resolution_table;
+const struct typeinfo_t* targs[];
 };
 
 struct classinfo_t {
@@ -362,10 +363,29 @@ redef class MClassType
 		mclass.require(v)
 		if not self.need_anchor and self.is_alive(cc) then
 			v.require_declaration("type_{self.c_name}")
+			v.require_declaration("resolution_table_{self.metainfo_uid}")
+		end
+		for mtype in self.arguments do
+			mtype.require(v)
 		end
 	end
 
-	redef fun dependencies do return mclass.to_dep
+	redef fun provide_declaration(v)
+	do
+		super
+		var resolution_table = "const struct typeinfo_t* resolution_table_{self.metainfo_uid}[]"
+		v.compiler.provide_declaration("resolution_table_{self.metainfo_uid}", "extern {resolution_table};")
+	end
+
+	redef fun dependencies
+	do
+		var deps = new AggregateDependencies
+		deps.add(mclass.to_dep)
+		for mtype in self.arguments do
+			deps.add(mtype.to_dep)
+		end
+		return deps
+	end
 
 	redef fun write_info(v)
 	do
@@ -376,10 +396,59 @@ redef class MClassType
 		v.add_decl("{self.metatag_value},")
 		v.add_decl("{mclassquery.to_addr},")
 		if not self.need_anchor and self.is_alive(cc) then
-			v.add_decl("&type_{self.mclass.c_name}")
+			v.add_decl("&type_{self.mclass.c_name},")
+			v.add_decl("(const struct typeinfo_t**)resolution_table_{self.metainfo_uid},")
 		else
-			v.add_decl("NULL /*{self} is DEAD*/")
+			v.add_decl("NULL, /*{self} is DEAD*/")
+			v.add_decl("NULL,") # resolution table
 		end
+		v.add_decl("\{")
+		for mtype in self.arguments do
+			var mtypequery = mtype.to_meta_query(mmodule)
+			v.add_decl("(const struct typeinfo_t*){mtypequery.to_addr},")
+		end
+		v.add_decl("NULL")
+		v.add_decl("\}")
+		v.add_decl("\};")
+
+		self.write_resolution_table(v)
+	end
+
+	protected fun write_resolution_table(v: AbstractCompilerVisitor)
+	do
+		if need_anchor then return
+		var cc = v.compiler
+		if not self.is_alive(cc) then return
+		var mmodule = cc.mainmodule
+		var mclass = self.mclass
+		var ancestors = mclass.linearized_ancestors(mmodule)
+		var decl = "const struct typeinfo_t* resolution_table_{self.metainfo_uid}[]"
+		v.add_decl("{decl} = \{")
+		for ancestor in ancestors do
+			var mclasstype = ancestor.mclass_type
+			var resolved_ancestor = mclasstype.anchor_to(mmodule, self)
+			var mpropdefs = mclass.most_specific_mpropdefs(mmodule)
+
+			# First the type arguments
+			# Type arguments are saved in rank order
+			for arg in resolved_ancestor.arguments do
+				var mq = arg.to_meta_query(mmodule)
+				v.add_decl("(const struct typeinfo_t*){mq.to_addr},")
+			end
+			# Then we save virtual types.
+			# NOTE: we assume the order in which we traverse `mpropdefs`
+			# is the same order in which the properties are saved
+			# when calling `save` on a `MClass` instance.
+			for mpropdef in mpropdefs do
+				if not mpropdef isa MVirtualTypeDef then break
+				var bound = mpropdef.bound.as(not null)
+				var mq = bound.to_meta_query(mmodule)
+				v.add_decl("(const struct typeinfo_t*){mq.to_addr},")
+			end
+			# Marks the end of an ancestor
+			v.add_decl("(const struct typeinfo_t*)-1,")
+		end
+		v.add_decl("NULL")
 		v.add_decl("\};")
 	end
 end
@@ -604,6 +673,9 @@ end
 redef class MClass
 	super SavableMEntity
 
+	protected var ancestors_cache = new ArrayMap[MModule, SequenceRead[MClass]]
+	protected var most_specific_mpropdefs_cache = new ArrayMap[MModule, SequenceRead[MPropDef]]
+
 	redef fun to_meta_query(mmodule: MModule): MClassMetaQuery
 	do
 		return new MClassMetaQuery(mmodule, self)
@@ -686,6 +758,8 @@ redef class MClass
 		end
 		# Then we save properties
 		for mpropdef in mpropdefs do
+			# NOTE: the function `most_specific_mpropdefs` always return
+			# a sequence where the first element are virtual types
 			v.add_decl("(struct propinfo_t*){mpropdef.to_addr},")
 		end
 		v.add_decl("NULL") # NULL terminated sequence
@@ -696,11 +770,22 @@ redef class MClass
 		save_type_table(v)
 	end
 
+	fun linearized_ancestors(mmodule: MModule): SequenceRead[MClass]
+	do
+		if ancestors_cache.has_key(mmodule) then
+			return ancestors_cache[mmodule]
+		end
+		var ancestors = self.collect_ancestors(mmodule, null).to_a
+		mmodule.linearize_mclasses(ancestors)
+		ancestors_cache[mmodule] = ancestors
+		return ancestors
+	end
+
 	protected fun save_ancestor_table(v: AbstractCompilerVisitor)
 	do
 		var compiler = v.compiler
 		var mmodule = compiler.mainmodule
-		var ancestors = self.collect_ancestors(mmodule, null)
+		var ancestors = self.linearized_ancestors(mmodule)
 		var decl = "struct classinfo_t* ancestor_table_{self.c_name}[]"
 		v.add_decl("{decl} = \{")
 		for ancestor in ancestors do
@@ -726,15 +811,29 @@ redef class MClass
 		v.add_decl("\};")
 	end
 
-	fun most_specific_mpropdefs(mmodule: MModule): Collection[MPropDef]
+	# Returns the most specific definition of a local mproperty among
+	# all refinements. NOTE: the first ensures the first property def are
+	# virtual type def if the class has any.
+	fun most_specific_mpropdefs(mmodule: MModule): SequenceRead[MPropDef]
 	do
+		if most_specific_mpropdefs_cache.has_key(mmodule) then
+			return most_specific_mpropdefs_cache[mmodule]
+		end
 		var mprops = self.collect_local_mproperties(null)
-		var res = new Array[MPropDef]
+		var vtypes = new Array[MPropDef]
+		var propdefs = new Array[MPropDef]
 		var mtype = self.intro.bound_mtype
 		for mprop in mprops do
 			var mpropdef = mprop.lookup_first_definition(mmodule, mtype)
-			res.push(mpropdef)
+			if mpropdef isa MVirtualTypeDef then
+				vtypes.push(mpropdef)
+			else
+				propdefs.push(mpropdef)
+			end
 		end
+		var res = vtypes
+		res.add_all(propdefs)
+		most_specific_mpropdefs_cache[mmodule] = res
 		return res
 	end
 end
@@ -797,8 +896,6 @@ redef class MAttributeDef
 		else
 			v.add_decl("-2, /*{self} has no color */")
 		end
-		# NOTE: don't forget to put back `,` at `const_color`
-		# TODO: v.add_decl("&typeinfo_of_{static_mtype.c_name}")
 		v.add_decl("(const struct typeinfo_t*){stquery.to_addr}")
                 v.add_decl("\};")
 	end
@@ -830,24 +927,69 @@ redef class MMethodDef
                 return tag
 	end
 
-	redef fun dependencies do return mclass.to_dep
+	redef fun dependencies
+	do
+		var deps = new AggregateDependencies
+		var msignature = self.msignature
+		deps.add(mclass.to_dep)
+		if msignature != null then
+			for mparam in msignature.mparameters do
+				var mtype = mparam.mtype
+				deps.add(mtype.to_dep)
+			end
+			var return_mtype = msignature.return_mtype
+			if return_mtype != null then
+				deps.add(return_mtype.to_dep)
+			end
+		end
+		return deps
+	end
 
-	redef fun requirements(v) do mclass.require(v)
+	redef fun requirements(v)
+	do
+		var msignature = self.msignature
+		mclass.require(v)
+		if msignature != null then
+			for mparam in msignature.mparameters do
+				var mtype = mparam.mtype
+				mtype.require(v)
+			end
+			var return_mtype = msignature.return_mtype
+			if return_mtype != null then
+				return_mtype.require(v)
+			end
+		end
+	end
 
 	redef fun write_info(v)
 	do
 		var compiler = v.compiler
 		var mmodule = compiler.mainmodule
 		var mclassquery = mclass.to_meta_query(mmodule)
+		var msignature = self.msignature
 
 		## The instance
 		v.add_decl("{full_metainfo_decl} = \{")
                 v.add_decl("{metatag_value},")
                 v.add_decl("&{mclassquery.metainfo_uid},")
 		v.add_decl("\"{self.name}\",")
-		v.add_decl("-1 /* {self} is dead */")
-
+		v.add_decl("-1, /* {self} is dead */")
+		v.add_decl("\{")
 		# TODO: add signature persistence
+		if msignature != null then
+			for mparam in msignature.mparameters do
+				var mtype = mparam.mtype
+				var mq = mtype.to_meta_query(mmodule)
+				v.add_decl("(const struct typeinfo_t*){mq.to_addr},")
+			end
+			var return_mtype = msignature.return_mtype
+			if return_mtype != null then
+				var mq = return_mtype.to_meta_query(mmodule)
+				v.add_decl("(const struct typeinfo_t*){mq.to_addr},")
+			end
+		end
+		v.add_decl("NULL")
+		v.add_decl("\}")
                 v.add_decl("\};")
 	end
 end
