@@ -1064,10 +1064,3 @@ class InstanceIterator[INSTANCE: Instance]
 		return v.bool_instance(inner.is_ok)
 	end
 end
-
-redef class MClass
-	fun most_specific_def(mmodule: MModule): MClassDef
-	do
-		return collect_linearization(mmodule).last.as(MClassDef)
-	end
-end

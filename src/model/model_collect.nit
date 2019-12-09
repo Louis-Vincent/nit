@@ -641,6 +641,13 @@ end
 
 redef class MClass
 
+	# Returned the most specific class definition from the mmodule `mmodule`.
+	fun most_specific_def(mmodule: MModule): MClassDef
+	do
+		var mclassdef = collect_linearization(mmodule).last
+		return mclassdef.as(MClassDef)
+	end
+
 	redef fun collect_modifiers do return intro.collect_modifiers
 
 	redef fun collect_linearization(mainmodule) do

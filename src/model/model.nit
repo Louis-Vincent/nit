@@ -1494,7 +1494,7 @@ class MVirtualType
 		return lookup_single_definition(mmodule, resolved_receiver).bound or else new MErrorType(model)
 	end
 
-	private fun lookup_single_definition(mmodule: MModule, resolved_receiver: MType): MVirtualTypeDef
+	protected fun lookup_single_definition(mmodule: MModule, resolved_receiver: MType): MVirtualTypeDef
 	do
 		assert not resolved_receiver.need_anchor
 		var props = self.mproperty.lookup_definitions(mmodule, resolved_receiver)
