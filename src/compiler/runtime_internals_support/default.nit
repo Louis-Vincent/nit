@@ -46,7 +46,6 @@ struct attrinfo_t {
 unsigned int metatag;
 const struct classinfo_t* classinfo;
 const char* name;
-const int color;
 const struct typeinfo_t* static_type;
 };
 
@@ -54,7 +53,6 @@ struct methodinfo_t {
 unsigned int metatag;
 const struct classinfo_t* classinfo;
 const char* name;
-const int color;
 const struct typeinfo_t* signature[];
 };
 
@@ -107,7 +105,7 @@ end
 #
 # 32 bits: 0000 0000 0000 0000 0000 0000 0000 0000
 #
-# `clasinfo_t` meta tag:
+# `classinfo_t` meta tag:
 # 32 bits: 0000 00pp pppp pppp Avvk kkaa aaaa ammm
 # m = meta kind
 # a = arity = number of formal parameters (maximum of 128)
@@ -156,12 +154,12 @@ abstract class SavableMEntity
 	do
 		self.requirements(v)
 		self.provide_declaration(v)
-		self.write_info(v)
+		self.write_field_values(v)
 	end
 
 	fun requirements(v: AbstractCompilerVisitor) do end
 
-	fun write_info(v: AbstractCompilerVisitor) is abstract
+	fun write_field_values(v: AbstractCompilerVisitor) is abstract
 
 	fun to_dep: CompilationDependency
 	do
@@ -178,7 +176,7 @@ abstract class SavableMEntity
 	fun provide_declaration(v: AbstractCompilerVisitor)
 	do
 		var mq = self.to_meta_query(v.compiler.mainmodule)
-		v.compiler.provide_declaration(mq.metainfo_uid, "{mq.full_metainfo_decl};")
+		v.compiler.provide_declaration(mq.metainfo_uid, "extern {mq.full_metainfo_decl};")
 	end
 
 	fun is_alive(cc: AbstractCompiler): Bool
@@ -234,13 +232,6 @@ interface MetaQuery
 	fun to_addr: String do return "&{metainfo_uid}"
 end
 
-redef class SeparateCompiler
-	fun has_color_for(entity: MEntity): Bool
-	do
-		return color_consts_done.has(entity)
-	end
-end
-
 abstract class CompilationDependency
 	fun is_out_of_date: Bool is abstract
 	fun resolve_dependency(cc: SeparateCompiler): nullable CompilationDependency
@@ -263,11 +254,9 @@ class SimpleDependency
 	do
 		if self.is_out_of_date then return null
 		var v = cc.new_visitor
-		#print "before is_saved: {savable}, {savable.is_saved}"
 		savable.save(v)
 		var metaquery = savable.to_meta_query(cc.mainmodule)
 		var res = metaquery.dependencies
-		#print "after"
 		savable.is_saved = true
 		return res
 	end
@@ -315,11 +304,19 @@ class DefaultModelSaver
 	redef fun save_model(model)
 	do
 		var deps = (new Array[CompilationDependency]).as_fifo
-		for mclass in model.mclasses do
-			if not mclass.is_alive(cc) then continue
-			var dep = new SimpleDependency(mclass)
+		var rta = cc.runtime_type_analysis
+		assert rta != null
+		for mtype in rta.live_types do
+			if not mtype.is_alive(cc) then continue
+			var dep = new SimpleDependency(mtype)
 			deps.add(dep)
 		end
+
+		#for mclass in model.mclasses do
+		#	if not mclass.is_alive(cc) then continue
+		#	var dep = new SimpleDependency(mclass)
+		#	deps.add(dep)
+		#end
 
 		while not deps.is_empty do
 			var dep = deps.take
@@ -338,13 +335,15 @@ end
 
 redef class MType
 	super SavableMEntity
+
+	# write the field values as if the type was nullable.
+	fun write_field_values_nullable(v: AbstractCompilerVisitor) is abstract
 end
 
 redef class MClassType
 	super MetaQuery
 
 	redef fun to_meta_query(mmodule) do return self
-
 	redef fun meta_cstruct_type do return "struct classtypeinfo_t"
 	redef fun metainfo_uid do return "classtypeinfo_of_{self.c_name}"
 
@@ -387,19 +386,31 @@ redef class MClassType
 		return deps
 	end
 
-	redef fun write_info(v)
+	redef fun write_field_values_nullable(v)
+	do
+		generic_write_field_values(v, self.as_nullable)
+	end
+
+	redef fun write_field_values(v)
+	do
+		generic_write_field_values(v, self)
+		write_resolution_table(v)
+	end
+
+	private fun generic_write_field_values(v: AbstractCompilerVisitor, this: MType)
 	do
 		var mmodule = v.compiler.mainmodule
 		var cc = v.compiler
 		var mclassquery = mclass.to_meta_query(mmodule)
-		v.add_decl("{self.full_metainfo_decl} = \{")
-		v.add_decl("{self.metatag_value},")
+		var selfquery = this.to_meta_query(mmodule)
+		v.add_decl("{selfquery.full_metainfo_decl} = \{")
+		v.add_decl("{selfquery.metatag_value},")
 		v.add_decl("{mclassquery.to_addr},")
-		if not self.need_anchor and self.is_alive(cc) then
-			v.add_decl("&type_{self.mclass.c_name},")
+		if not this.need_anchor and this.is_alive(cc) then
+			v.add_decl("&type_{this.c_name},")
 			v.add_decl("(const struct typeinfo_t**)resolution_table_{self.metainfo_uid},")
 		else
-			v.add_decl("NULL, /*{self} is DEAD*/")
+			v.add_decl("NULL, /*{this} is DEAD*/")
 			v.add_decl("NULL,") # resolution table
 		end
 		v.add_decl("\{")
@@ -410,8 +421,6 @@ redef class MClassType
 		v.add_decl("NULL")
 		v.add_decl("\}")
 		v.add_decl("\};")
-
-		self.write_resolution_table(v)
 	end
 
 	protected fun write_resolution_table(v: AbstractCompilerVisitor)
@@ -421,8 +430,9 @@ redef class MClassType
 		if not self.is_alive(cc) then return
 		var mmodule = cc.mainmodule
 		var mclass = self.mclass
+		var selfmq = self.to_meta_query(mmodule)
 		var ancestors = mclass.linearized_ancestors(mmodule)
-		var decl = "const struct typeinfo_t* resolution_table_{self.metainfo_uid}[]"
+		var decl = "const struct typeinfo_t* resolution_table_{selfmq.metainfo_uid}[]"
 		v.add_decl("{decl} = \{")
 		for ancestor in ancestors do
 			var mclasstype = ancestor.mclass_type
@@ -464,24 +474,25 @@ class MVTypeMetaQuery
 		vtypedef = self.mtype.most_specific_def(mmodule)
 	end
 
-	redef fun metainfo_uid
-	do
-		return self.vtypedef.metainfo_uid
-	end
-
-	redef fun meta_cstruct_type
-	do
-		return self.vtypedef.meta_cstruct_type
-	end
+	redef fun metainfo_uid do return "vtypeinfo_of_{mtype.mclass.c_name}_{mtype.name}"
+	redef fun meta_cstruct_type do return "struct formaltypeinfo_t"
 
 	redef fun dependencies
 	do
-		return self.vtypedef.dependencies
+		var deps = new AggregateDependencies
+		deps.add(vtypedef.mclass.to_dep)
+		deps.add(vtypedef.static_bound.to_dep)
+		return deps
 	end
 end
 
 # This class is only proxying to `MVirtualTypeDef`.
 redef class MVirtualType
+
+	fun mclass: MClass
+	do
+		return mproperty.intro_mclassdef.mclass
+	end
 
 	redef fun to_meta_query(mmodule)
 	do
@@ -496,23 +507,37 @@ redef class MVirtualType
 		return vtypedef
 	end
 
-	redef fun save(v)
+	redef fun write_field_values(v)
 	do
-		var cc = v.compiler
-		var mmodule = cc.mainmodule
-		var vtypedef = most_specific_def(mmodule)
-		# proxy
-		if not vtypedef.is_saved then
-			vtypedef.save(v)
-			vtypedef.is_saved = true
-		end
+		generic_write_field_values(v, self)
 	end
 
-	redef fun require(v)
+	redef fun write_field_values_nullable(v)
 	do
-		var vtypedef = most_specific_def(v.compiler.mainmodule)
-		# proxy
-		vtypedef.require(v)
+		generic_write_field_values(v, self.as_nullable)
+	end
+
+	private fun generic_write_field_values(v: AbstractCompilerVisitor, this: MType)
+	do
+		var mmodule = v.compiler.mainmodule
+		var vtypedef = self.most_specific_def(mmodule)
+		var selfquery = this.to_meta_query(mmodule)
+		var mclassquery = vtypedef.mclass.to_meta_query(mmodule)
+		var sbquery = vtypedef.static_bound.to_meta_query(mmodule)
+		v.add_decl("{selfquery.full_metainfo_decl} = \{")
+		v.add_decl("{selfquery.metatag_value},")
+		v.add_decl("{mclassquery.to_addr},")
+		v.add_decl("\"{self.name}\",")
+		v.add_decl("(struct typeinfo_t*){sbquery.to_addr}")
+		v.add_decl("\};")
+	end
+
+	redef fun requirements(v)
+	do
+		var mmodule = v.compiler.mainmodule
+		var vtypedef = self.most_specific_def(mmodule)
+		vtypedef.mclass.require(v)
+		vtypedef.static_bound.require(v)
 	end
 end
 
@@ -560,11 +585,11 @@ redef class MParameterType
 		static_bound(v.compiler.mainmodule).require(v)
 	end
 
-	redef fun write_info(v)
+	private fun generic_write_field_values(v: AbstractCompilerVisitor, this: MType)
 	do
 		var mmodule = v.compiler.mainmodule
 		var static_bound = static_bound(mmodule)
-		var selfquery = to_meta_query(mmodule)
+		var selfquery = this.to_meta_query(mmodule)
 		var mclassquery = mclass.to_meta_query(mmodule)
 		var staticquery = static_bound.to_meta_query(mmodule)
 
@@ -574,6 +599,16 @@ redef class MParameterType
 		v.add_decl("\"{self.name}\",")
 		v.add_decl("(struct typeinfo_t*){staticquery.to_addr}")
 		v.add_decl("\};")
+	end
+
+	redef fun write_field_values(v)
+	do
+		generic_write_field_values(v, self)
+	end
+
+	redef fun write_field_values_nullable(v)
+	do
+		generic_write_field_values(v, self.as_nullable)
 	end
 end
 
@@ -609,23 +644,24 @@ class MNullableMetaQuery
 
 	redef fun dependencies do return self.proxied.dependencies
 end
+
 redef class MNullableType
+
 	redef fun to_meta_query(mmodule)
 	do
 		return new MNullableMetaQuery(mmodule, self)
 	end
-	redef fun save(v)
+	redef fun write_field_values(v)
 	do
-		self.provide_declaration(v)
-		self.requirements(v)
-		if not mtype.is_saved then
-			mtype.save(v)
-			mtype.is_saved = true
-		end
+		self.mtype.write_field_values_nullable(v)
 	end
 
 	redef fun requirements(v)
 	do
+		var cc = v.compiler
+		if self.is_alive(cc) and not self.need_anchor then
+			v.require_declaration("type_{self.c_name}")
+		end
 		mtype.require(v)
 	end
 end
@@ -644,8 +680,13 @@ class MClassMetaQuery
 		var kind = classkind_to_int(self.mclass.kind)
 		var visibility = visibility_to_int(self.mclass.visibility)
 		var object_class = self.mmodule.get_primitive_class("Object")
-		var direct_childs_of_object = object_class.collect_children(self.mmodule, null)
-		var is_child_of_object = direct_childs_of_object.has(self).to_i
+		var direct_childs = object_class.in_hierarchy(self.mmodule).direct_smallers
+		var is_child_of_object = 0
+		for child in direct_childs do
+			if child == self.mclass then
+				is_child_of_object = 1
+			end
+		end
 		tag = tag | (arity << 3) # 7 bits => 3 + 7 = 10
 		tag = tag | (kind << 10) # 3 bits => 10 + 3 + 13
 		tag = tag | (visibility << 13) # 1 bits => 13 + 2 = 15
@@ -673,21 +714,37 @@ end
 redef class MClass
 	super SavableMEntity
 
+	# TODO: check if we can simplify cache, ie if the instance of `MModule`
+	# is always the same.
 	protected var ancestors_cache = new ArrayMap[MModule, SequenceRead[MClass]]
 	protected var most_specific_mpropdefs_cache = new ArrayMap[MModule, SequenceRead[MPropDef]]
+	protected var meta_query_cache = new ArrayMap[MModule, MClassMetaQuery]
 
-	redef fun to_meta_query(mmodule: MModule): MClassMetaQuery
+	redef fun to_meta_query(mmodule): MClassMetaQuery
 	do
-		return new MClassMetaQuery(mmodule, self)
+		#NOTE: This function may be call a lot of time, this is why
+		# we need to cache. Due to the "domino" effect of model persistence,
+		# many `MEntity` might require to query an instance of `MClass`
+		# for meta information.
+		if meta_query_cache.has_key(mmodule) then
+			return meta_query_cache[mmodule]
+		end
+		var res = new MClassMetaQuery(mmodule, self)
+		meta_query_cache[mmodule] = res
+		return res
 	end
 
 	redef fun provide_declaration(v)
 	do
 		super
-		var ancestor_table = "struct classinfo_t* ancestor_table_{self.c_name}[]"
+		var linearized_ancestors = linearized_ancestors(v.compiler.mainmodule)
+		# We add 1 for NULL end mark
+		var ancestors_len = linearized_ancestors.length + 1
+		var ancestor_table = "struct classinfo_t* ancestor_table_{self.c_name}[{ancestors_len}]"
 		v.compiler.provide_declaration("ancestor_table_{self.c_name}", "extern {ancestor_table};")
 		if self.arity > 0 then
-			var type_table = "struct classtypeinfo_t* typeinfo_table_{self.c_name}[]"
+			var mtypes_len = self.get_mtype_cache.values.length + 1
+			var type_table = "struct classtypeinfo_t* typeinfo_table_{self.c_name}[{mtypes_len}]"
 			v.compiler.provide_declaration("typeinfo_table_{c_name}", "extern {type_table};")
 		end
 	end
@@ -708,6 +765,9 @@ redef class MClass
 
 		v.require_declaration("ancestor_table_{self.c_name}")
 		for raw_dep in self.raw_dependencies(mmodule) do
+			#if raw_dep isa MType and not raw_dep.is_alive(cc) then
+			#	continue
+			#end
 			raw_dep.require(v)
 		end
 	end
@@ -725,7 +785,7 @@ redef class MClass
 		return raw_deps
 	end
 
-	redef fun write_info(v)
+	redef fun write_field_values(v)
 	do
 		var cc = v.compiler
 		var mmodule = cc.mainmodule
@@ -765,7 +825,6 @@ redef class MClass
 		v.add_decl("NULL") # NULL terminated sequence
 		v.add_decl("\}")
 		v.add_decl("\};")
-
 		save_ancestor_table(v)
 		save_type_table(v)
 	end
@@ -786,7 +845,7 @@ redef class MClass
 		var compiler = v.compiler
 		var mmodule = compiler.mainmodule
 		var ancestors = self.linearized_ancestors(mmodule)
-		var decl = "struct classinfo_t* ancestor_table_{self.c_name}[]"
+		var decl = "struct classinfo_t* ancestor_table_{self.c_name}[{ancestors.length + 1}]"
 		v.add_decl("{decl} = \{")
 		for ancestor in ancestors do
 			var mq = ancestor.to_meta_query(mmodule)
@@ -801,9 +860,10 @@ redef class MClass
 	do
 		if self.arity == 0 then return
 		var mtypes = self.get_mtype_cache.values
-		var decl = "struct classtypeinfo_t* typeinfo_table_{c_name}[]"
+		var decl = "struct classtypeinfo_t* typeinfo_table_{c_name}[{mtypes.length + 1}]"
 		v.add_decl("{decl} = \{")
 		for mtype in mtypes do
+			#if not mtype.is_alive(v.compiler) then continue
 			var metaquery = mtype.to_meta_query(v.compiler.mainmodule)
 			v.add_decl("{metaquery.to_addr},")
 		end
@@ -877,7 +937,7 @@ redef class MAttributeDef
 		static_mtype.as(not null).require(v)
 	end
 
-	redef fun write_info(v)
+	redef fun write_field_values(v)
 	do
 		var compiler = v.compiler
 		assert compiler isa SeparateCompiler
@@ -890,12 +950,6 @@ redef class MAttributeDef
                 v.add_decl("{metatag_value},")
                 v.add_decl("{mclassquery.to_addr},")
 		v.add_decl("\"{self.name}\",")
-		# NOTE: for debug
-		if compiler.has_color_for(self) then
-			v.add_decl("-1, // TODO")
-		else
-			v.add_decl("-2, /*{self} has no color */")
-		end
 		v.add_decl("(const struct typeinfo_t*){stquery.to_addr}")
                 v.add_decl("\};")
 	end
@@ -961,7 +1015,7 @@ redef class MMethodDef
 		end
 	end
 
-	redef fun write_info(v)
+	redef fun write_field_values(v)
 	do
 		var compiler = v.compiler
 		var mmodule = compiler.mainmodule
@@ -973,7 +1027,6 @@ redef class MMethodDef
                 v.add_decl("{metatag_value},")
                 v.add_decl("&{mclassquery.metainfo_uid},")
 		v.add_decl("\"{self.name}\",")
-		v.add_decl("-1, /* {self} is dead */")
 		v.add_decl("\{")
 		# TODO: add signature persistence
 		if msignature != null then
@@ -995,36 +1048,44 @@ redef class MMethodDef
 end
 
 redef class MVirtualTypeDef
-	redef fun metainfo_uid do return "vtypeinfo_of_{mclass.c_name}_{name}"
+	redef fun metainfo_uid do return "vtypeinfo_of_{mvirtualtype.mclass.c_name}_{name}"
 	redef fun meta_cstruct_type do return "struct formaltypeinfo_t"
+
+	redef fun to_meta_query(mmodule)
+	do
+		return mvirtualtype.to_meta_query(mmodule)
+	end
 
 	protected fun static_bound: MType do return self.bound.as(not null)
 
+	protected fun mvirtualtype: MVirtualType
+	do
+		return self.mproperty.mvirtualtype
+	end
+
 	redef fun requirements(v)
 	do
-		mclass.require(v)
-		static_bound.require(v)
+		mvirtualtype.requirements(v)
 	end
 
+	# NOTE: duplicate from `MVTypeMetaQuery`
 	redef fun dependencies
 	do
-		var deps = new AggregateDependencies
-		deps.add(mclass.to_dep)
-		deps.add(static_bound.to_dep)
-		return deps
+		return mvirtualtype.to_dep
 	end
 
-	redef fun write_info(v)
+	redef fun save(v)
 	do
-		var mmodule = v.compiler.mainmodule
-		var staticboundquery = static_bound.to_meta_query(mmodule)
-		var mclassquery = mclass.to_meta_query(mmodule)
-		v.add_decl("{full_metainfo_decl} = \{")
-		v.add_decl("{metatag_value},")
-		v.add_decl("{mclassquery.to_addr},")
-		v.add_decl("\"{self.name}\",")
-		v.add_decl("(struct typeinfo_t*){staticboundquery.to_addr}")
-		v.add_decl("\};")
+		#self.provide_declaration(v)
+		#self.requirements(v)
+		if mvirtualtype.is_saved then return
+		mvirtualtype.save(v)
+		mvirtualtype.is_saved = true
+	end
+
+	redef fun write_field_values(v)
+	do
+		mvirtualtype.write_field_values(v)
 	end
 end
 
