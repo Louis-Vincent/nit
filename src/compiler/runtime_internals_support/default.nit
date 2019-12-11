@@ -36,12 +36,14 @@ unsigned int metatag;
 const struct classinfo_t* classinfo;
 };
 
+// MPropDef
 struct propinfo_t {
 unsigned int metatag;
 const struct classinfo_t* classinfo;
 const char* name;
 };
 
+// MAttributeDef
 struct attrinfo_t {
 unsigned int metatag;
 const struct classinfo_t* classinfo;
@@ -49,6 +51,7 @@ const char* name;
 const struct typeinfo_t* static_type;
 };
 
+// MMethDef
 struct methodinfo_t {
 unsigned int metatag;
 const struct classinfo_t* classinfo;
@@ -56,10 +59,20 @@ const char* name;
 const struct typeinfo_t* signature[];
 };
 
+// MVirtualTypeDef
+struct vtypeinfo_t {
+unsigned int metatag;
+const struct classinfo_t* classinfo;
+const char* name;
+const struct formaltypeinfo_t* vtype;
+const struct typeinfo_t* bound;
+};
+
 /*
 This structure is shared by virtual types and parameter types.
 mix: typeinfo_t + propinfo_t
 */
+// MVirtualType + MParameterType = MFormalType
 struct formaltypeinfo_t {
 unsigned int metatag;
 const struct classinfo_t* classinfo;
@@ -67,6 +80,7 @@ const char* name;
 const struct typeinfo_t* bound;
 };
 
+// MClassType
 struct classtypeinfo_t {
 unsigned int metatag;
 const struct classinfo_t* classinfo;
@@ -75,6 +89,7 @@ const struct typeinfo_t** resolution_table;
 const struct typeinfo_t* targs[];
 };
 
+// MClass
 struct classinfo_t {
 unsigned int metatag;
 const struct class* class_ptr;
@@ -902,7 +917,7 @@ redef class MPropDef
 	super SavableMEntity
 	super MetaQuery
 
-	redef fun to_meta_query(mmodule) do return self
+	redef fun to_meta_query(mmodule): SELF do return self
 
 	fun mclass: MClass do return self.mclassdef.mclass
 
@@ -1048,13 +1063,8 @@ redef class MMethodDef
 end
 
 redef class MVirtualTypeDef
-	redef fun metainfo_uid do return "vtypeinfo_of_{mvirtualtype.mclass.c_name}_{name}"
-	redef fun meta_cstruct_type do return "struct formaltypeinfo_t"
-
-	redef fun to_meta_query(mmodule)
-	do
-		return mvirtualtype.to_meta_query(mmodule)
-	end
+	redef fun metainfo_uid do return "vtypepropinfo_of_{mclass.c_name}_{name}"
+	redef fun meta_cstruct_type do return "struct vtypeinfo_t"
 
 	protected fun static_bound: MType do return self.bound.as(not null)
 
@@ -1065,27 +1075,36 @@ redef class MVirtualTypeDef
 
 	redef fun requirements(v)
 	do
-		mvirtualtype.requirements(v)
+		mvirtualtype.require(v)
+		static_bound.require(v)
+		mclass.require(v)
 	end
 
 	# NOTE: duplicate from `MVTypeMetaQuery`
 	redef fun dependencies
 	do
-		return mvirtualtype.to_dep
-	end
-
-	redef fun save(v)
-	do
-		#self.provide_declaration(v)
-		#self.requirements(v)
-		if mvirtualtype.is_saved then return
-		mvirtualtype.save(v)
-		mvirtualtype.is_saved = true
+		var deps = new AggregateDependencies
+		deps.add(mvirtualtype.to_dep)
+		deps.add(mclass.to_dep)
+		deps.add(mvirtualtype.to_dep)
+		return deps
 	end
 
 	redef fun write_field_values(v)
 	do
-		mvirtualtype.write_field_values(v)
+		var mmodule = v.compiler.mainmodule
+		var this = self.to_meta_query(mmodule)
+		var mclass = mclass.to_meta_query(mmodule)
+		var static_bound = static_bound.to_meta_query(mmodule)
+		var vtype = mvirtualtype.to_meta_query(mmodule)
+
+		v.add_decl("{full_metainfo_decl} = \{")
+		v.add_decl("{this.metatag_value},")
+		v.add_decl("{mclass.to_addr},")
+		v.add_decl("\"{this.name}\",")
+		v.add_decl("{vtype.to_addr},")
+		v.add_decl("(const struct typeinfo_t*){static_bound.to_addr}")
+		v.add_decl("\};")
 	end
 end
 
