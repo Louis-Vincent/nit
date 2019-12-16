@@ -30,6 +30,8 @@ abstract class RuntimeInternalsFactory
 	fun classinfo_impl(v: AbstractCompilerVisitor): ClassInfoImpl is abstract
 
 	fun rti_repo_impl(v: AbstractCompilerVisitor): RtiRepoImpl is abstract
+
+	fun rti_iter_impl(v: AbstractCompilerVisitor): RtiIterImpl is abstract
 end
 
 abstract class RuntimeInfoImpl
@@ -48,13 +50,22 @@ end
 abstract class ClassInfoImpl
 	super RuntimeInfoImpl
 
+	# Compile the interned method `ClassInfo::ancestors`
 	fun ancestors(recv: RuntimeVariable, ret_type: MType) is abstract
 end
 
 abstract class RtiRepoImpl
 	super RuntimeInfoImpl
-	# Compile the method `RuntimeInternalsRepo::classof`.
+	# Compile the interned method `RuntimeInternalsRepo::classof`.
 	fun classof(recv: RuntimeVariable, ret_type: MType) is abstract
+end
+
+abstract class RtiIterImpl
+	super RuntimeInfoImpl
+
+	fun next(recv: RuntimeVariable) is abstract
+	fun is_ok(recv: RuntimeVariable, ret_type: MType) is abstract
+	fun item(recv: RuntimeVariable, ret_type: MType) is abstract
 end
 
 # Base class for all meta info C struct provider.

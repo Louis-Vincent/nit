@@ -34,6 +34,13 @@ class DefaultRuntimeInternals
 		var rti_repo_mclass = cc.get_mclass("RuntimeInternalsRepo")
 		return new DefaultRtiRepoImpl(v, rti_repo_mclass)
 	end
+
+	redef fun rti_iter_impl(v)
+	do
+		var cc = v.compiler
+		var rti_iter_mclass = cc.get_mclass("RuntimeInfoIterator")
+		return new DefaultRtiIterImpl(v, rti_iter_mclass)
+	end
 end
 
 class DefaultStructProvider
@@ -1204,6 +1211,69 @@ end
 class DefaultClassInfoImpl
 	super ClassInfoImpl
 
+	redef fun ancestors(recv, ret_type)
+	do
+		var mclass = self.mclass
+		var iter_mclass = v.compiler.get_mclass("RuntimeInfoIterator")
+		var mtype = iter_mclass.get_mtype([mclass.mclass_type])
+		var iter_constr = "NEW_{iter_mclass.c_name}"
+		var classinfo_constr = "NEW_{mclass.c_name}"
+
+		# We need the derived `RuntimeInfoIterator` type.
+		# NOTE: coupled with the separate compiler
+		v.require_declaration("type_{mtype.c_name}")
+
+		# We need the `ClassInfo` instance struct
+		v.require_declaration("instance_{mclass.c_name}")
+
+		# We need the iterator constructor
+		v.require_declaration(iter_constr)
+
+		# We also need the `ClassInfo` constructor
+		v.require_declaration(classinfo_constr)
+
+		var ancestor_table = "(const struct metainfo_t**)((struct instance_{mclass.c_name}*){recv})->classinfo->ancestors"
+		var classinfo_constr_ptr = "(val* (*)(void*))&{classinfo_constr}"
+		var res = v.new_expr("{iter_constr}({classinfo_constr_ptr}, {ancestor_table}, &type_{mtype.c_name})", ret_type)
+		v.ret(res)
+	end
+end
+
+class DefaultRtiIterImpl
+	super RtiIterImpl
+
+	redef fun next(recv)
+	do
+		var casted_recv = "(struct instance_{mclass.c_name}*){recv}"
+		v.add("({casted_recv})->table++;")
+		v.add("({casted_recv})->last_to_managed = NULL;")
+		v.add("goto {self.v.frame.returnlabel.as(not null)};")
+	end
+
+	redef fun is_ok(recv, ret_type)
+	do
+		v.require_declaration("instance_{mclass.c_name}")
+		var casted_recv = "(struct instance_{mclass.c_name}*){recv}"
+		v.ret(v.new_expr("*({casted_recv})->table != NULL", ret_type))
+	end
+
+	redef fun item(recv, ret_type)
+	do
+		v.require_declaration("instance_{mclass.c_name}")
+		var casted_recv = "(struct instance_{mclass.c_name}*){recv}"
+		# If we already built a Nit object for the current table entry
+		v.add("if(({casted_recv})->last_to_managed != NULL) \{")
+		v.add("/* avoid duplicate allocations of the same runtime info*/")
+		var res1 = v.new_expr("({casted_recv})->last_to_managed", ret_type)
+		v.ret(res1)
+		v.add("\} else \{")
+		var curr_entry = v.get_name("curr_entry")
+		var managed_val = v.get_name("managed_val")
+		v.add("void* {curr_entry} = (void*)*({casted_recv})->table;")
+		var res2 = v.new_expr("({casted_recv})->to_managed({curr_entry})", ret_type)
+		v.ret(res2)
+		v.add("\}")
+	end
 end
 
 class DefaultRtiRepoImpl

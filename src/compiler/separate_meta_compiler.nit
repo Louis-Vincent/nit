@@ -49,6 +49,8 @@ end
 redef class AbstractCompilerVisitor
 	fun rti_repo_def(pname: String, ret_type: nullable MType, arguments: Array[RuntimeVariable]): Bool do return false
 	fun classinfo_def(pname: String, ret_type: nullable MType, arguments: Array[RuntimeVariable]): Bool do return false
+
+	fun rti_iter_def(pname: String, ret_type: nullable MType, arguments: Array[RuntimeVariable]): Bool do return false
 end
 
 class SeparateMetaCompilerVisitor
@@ -78,8 +80,24 @@ class SeparateMetaCompilerVisitor
 		var res = true
 		if pname == "name" then
 			v.name(arguments[0], ret_type.as(not null))
-		#else if pname == "ancestors" then
-			#v.ancestors(arguments[0], ret_type.as(not null))
+		else if pname == "ancestors" then
+			v.ancestors(arguments[0], ret_type.as(not null))
+		else
+			res = false
+		end
+		return res
+	end
+
+	redef fun rti_iter_def(pname, ret_type, arguments)
+	do
+		var v = rti_factory.rti_iter_impl(self)
+		var res = true
+		if pname == "next" then
+			v.next(arguments[0])
+		else if pname == "is_ok" then
+			v.is_ok(arguments[0], ret_type.as(not null))
+		else if pname == "item" then
+			v.item(arguments[0], ret_type.as(not null))
 		else
 			res = false
 		end
@@ -200,8 +218,9 @@ class SeparateMetaCompiler
                         self.header.add_decl("const struct class* class;")
 			self.header.add_decl("val* (*to_managed)(void*);")
                         self.header.add_decl("const struct metainfo_t** table;")
+			self.header.add_decl("val* last_to_managed;")
                         self.header.add_decl("\};")
-
+			self.provide_declaration("instance_{c_name}", "struct instance_{c_name};")
 			self.provide_declaration("NEW_{c_name}", "{mtype.ctype} NEW_{c_name}(val* (*to_managed)(void*), const struct metainfo_t** table, const struct type* type);")
                         v.require_declaration("class_{c_name}")
 
@@ -216,6 +235,7 @@ class SeparateMetaCompiler
 			hardening_live_type(v, "type")
 			v.add("{recv}->to_managed = to_managed;")
                         v.add("{recv}->table = table;")
+			v.add("{recv}->last_to_managed = NULL;")
 			v.add("return (val*){recv};")
 			v.add("\}")
 			return true
@@ -269,6 +289,8 @@ redef class AMethPropdef
 			v.rti_repo_def(pname, ret, arguments)
 		else if cname == "ClassInfo" then
 			v.classinfo_def(pname, ret, arguments)
+		else if cname == "RuntimeInfoIterator" then
+			v.rti_iter_def(pname, ret, arguments)
 		end
 
 		return super
