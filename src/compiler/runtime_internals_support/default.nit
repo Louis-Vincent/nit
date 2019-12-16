@@ -10,20 +10,52 @@ end
 
 class DefaultRuntimeInternals
 	super RuntimeInternalsFactory
-	redef fun meta_cstruct_provider(cc)
+
+	redef fun meta_struct_provider(cc)
 	do
-		return new DefaultCStructProvider(cc)
+		return new DefaultStructProvider(cc)
 	end
 
 	redef fun model_saver(cc)
 	do
 		return new DefaultModelSaver(cc)
 	end
+
+	redef fun classinfo_impl(v)
+	do
+		var cc = v.compiler
+		var classinfo_mclass = cc.get_mclass("ClassInfo")
+		return new DefaultClassInfoImpl(v, classinfo_mclass)
+	end
+
+	redef fun rti_repo_impl(v)
+	do
+		var cc = v.compiler
+		var rti_repo_mclass = cc.get_mclass("RuntimeInternalsRepo")
+		return new DefaultRtiRepoImpl(v, rti_repo_mclass)
+	end
 end
 
-class DefaultCStructProvider
-	super MetaCStructProvider
+class DefaultStructProvider
+	super MetaStructProvider
         protected var cc: AbstractCompiler
+
+	redef fun mclass_to_struct_type(mclass)
+	do
+		if mclass.name == "ClassInfo" then
+			return "struct classinfo_t"
+		else if mclass.name == "TypeInfo" then
+			return "struct typeinfo_t"
+		else if mclass.name == "AttributeInfo" then
+			return "struct attrinfo_t"
+		else if mclass.name == "MethodInfo" then
+			return "struct methodinfo_t"
+		else if mclass.name == "VirtualTypeInfo" then
+			return "struct vtypeinfo_t"
+		end
+		abort
+	end
+
 	redef fun compile_metainfo_header_structs
 	do
 		cc.header.add_decl("""
@@ -156,10 +188,10 @@ end
 # r = has a return value (0=no, 1=yes)
 #
 # `formaltypeinfo_t` meta tag:
-# 32 bits: 0000 0000 0000 0000 0rrr rrrr kxxx xxxx
-# x = inherited from `PropertyInfo` meta structure
+# 32 bits: n000 0000 0000 0000 0000 0rrr rrrr kmmm
 # k = kind of formal type (0=type param, 1=virtual type)
 # r = rank (if `self` isa type param)
+# n = null bit
 abstract class SavableMEntity
 	var is_saved: Bool = false is protected writable
 
@@ -234,7 +266,7 @@ interface MetaQuery
 		# the code everywhere in the file.
 		# TODO: replace this with polymorphism (when stable)
 		if self isa MClassType then return 1
-		if self isa MParameterType then return 2
+		if self isa MFormalType then return 2
 		if self isa MVirtualTypeDef then return 3
 		if self isa MAttributeDef then return 4
 		if self isa MMethodDef then return 5
@@ -327,17 +359,31 @@ class DefaultModelSaver
 			deps.add(dep)
 		end
 
-		#for mclass in model.mclasses do
-		#	if not mclass.is_alive(cc) then continue
-		#	var dep = new SimpleDependency(mclass)
-		#	deps.add(dep)
-		#end
-
 		while not deps.is_empty do
 			var dep = deps.take
 			var new_dep = dep.resolve_dependency(cc)
 			if new_dep != null then deps.add(new_dep)
 		end
+		build_class_table
+	end
+
+	protected fun build_class_table
+	do
+		var v = cc.new_visitor
+		var mmodule = cc.mainmodule
+		var rta = cc.runtime_type_analysis.as(not null)
+		var mclasses = rta.live_classes
+		cc.provide_declaration("class_table_entry_t", "struct class_table_entry_t \{ const struct class* class; const struct classinfo_t* classinfo; \};")
+		cc.provide_declaration("classinfo_table", "extern struct class_table_entry_t classinfo_table[{mclasses.length + 1}];")
+		v.require_declaration("class_table_entry_t")
+		v.add_decl("struct class_table_entry_t classinfo_table[{mclasses.length + 1}] = \{")
+		for mclass in mclasses do
+			mclass.require(v)
+			var mq = mclass.to_meta_query(mmodule)
+			v.add_decl("\{&class_{mclass.c_name}, {mq.to_addr} \},")
+		end
+		v.add_decl("\{ NULL, NULL \}")
+		v.add_decl("\};")
 	end
 end
 
@@ -492,6 +538,12 @@ class MVTypeMetaQuery
 	redef fun metainfo_uid do return "vtypeinfo_of_{mtype.mclass.c_name}_{mtype.name}"
 	redef fun meta_cstruct_type do return "struct formaltypeinfo_t"
 
+	redef fun metatag_value
+	do
+		var tag = super
+		return tag | (1 << 3) # 3 = m, 4th = kind of formal type
+	end
+
 	redef fun dependencies
 	do
 		var deps = new AggregateDependencies
@@ -569,7 +621,7 @@ class MParamMetaQuery
 	redef fun metatag_value
 	do
 		var tag = super
-		return tag | (mtype.rank << 9)
+		return tag | (mtype.rank << 4) # 3 = mmm, 1 = k => 4 shifts
 	end
 
 	redef fun dependencies
@@ -1126,4 +1178,52 @@ do
 	if kind == extern_kind then return 4
 	if kind == subset_kind then return 5
 	abort
+end
+
+redef class RuntimeInfoImpl
+	redef fun name(recv: RuntimeVariable, ret_type: MType)
+	do
+		var c_name = self.mclass.c_name
+		var fieldname = self.mclass.name.to_lower
+		v.require_declaration("instance_{c_name}")
+		var cstring_type = v.mmodule.c_string_type
+		var string_type = v.mmodule.string_type
+		var int_type = v.mmodule.int_type
+
+		var false_val = v.value_instance(false)
+		var raw_name = v.new_var(cstring_type)
+		var name_len = v.new_var(int_type)
+		var res = v.new_var(string_type)
+		v.add("{raw_name} = (char*)((struct instance_{c_name}*){recv})->{fieldname}->name;")
+		v.add("{name_len} = (long)strlen({raw_name});")
+		v.add("{res} = {v.send(v.get_property("to_s_with_length", cstring_type), [raw_name, name_len]).as(not null)};")
+		v.ret(res)
+	end
+end
+
+class DefaultClassInfoImpl
+	super ClassInfoImpl
+
+end
+
+class DefaultRtiRepoImpl
+	super RtiRepoImpl
+
+	redef fun classof(recv, ret_type)
+	do
+		var cc = v.compiler
+		var classinfo = cc.get_mclass("ClassInfo")
+		var entry = v.get_name("entry")
+		v.require_declaration("class_table_entry_t")
+		v.require_declaration("classinfo_table")
+		v.require_declaration("NEW_{classinfo.c_name}")
+		v.add("struct class_table_entry_t* {entry} = classinfo_table;")
+		v.add("for(; {entry}->class != NULL; {entry}++) \{")
+		v.add("if({entry}->class == ({recv}->class)) \{ break; \} ")
+		v.add("\}")
+		v.add("if({entry}->class == NULL) \{")
+		v.add_abort("class not found")
+		v.add("\}")
+		v.ret(v.new_expr("NEW_{classinfo.c_name}({entry}->classinfo)", ret_type))
+	end
 end

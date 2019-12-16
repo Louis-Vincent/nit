@@ -224,6 +224,7 @@ end
 
 # Entry point of the API.
 universal RuntimeInternalsRepo
+	fun classof(obj: Object): ClassInfo is intern
 	fun object_type(obj: Object): TypeInfo is intern
 	fun get_classinfo(classname: String): nullable ClassInfo is intern
 end

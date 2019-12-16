@@ -24,19 +24,19 @@ class MetaCompilerPhase
 		# NOTE: duplicate from `separate_compiler::SeparateCompilerPhase`
 		var modelbuilder = toolcontext.modelbuilder
 		var analysis = modelbuilder.do_rapid_type_analysis(mainmodule)
-		var rti_factory = new DefaultRuntimeInternals
-		modelbuilder.run_separate_meta_compiler(mainmodule, analysis, rti_factory)
+		var rti = new DefaultRuntimeInternals
+		modelbuilder.run_separate_meta_compiler(mainmodule, analysis, rti)
 	end
 end
 
 # NOTE: duplicate for `separate_compiler`
 redef class ModelBuilder
-	fun run_separate_meta_compiler(mainmodule: MModule, runtime_type_analysis: nullable RapidTypeAnalysis, rti_factory: RuntimeInternalsFactory)
+	fun run_separate_meta_compiler(mainmodule: MModule, runtime_type_analysis: nullable RapidTypeAnalysis, rti: RuntimeInternalsFactory)
 	do
 		var time0 = get_time
 		self.toolcontext.info("*** GENERATING C ***", 1)
 
-		var compiler = new SeparateMetaCompiler(mainmodule, self, runtime_type_analysis, rti_factory)
+		var compiler = new SeparateMetaCompiler(mainmodule, self, runtime_type_analysis, rti)
 		compiler.do_compilation
 		compiler.display_stats
 
@@ -54,50 +54,31 @@ end
 class SeparateMetaCompilerVisitor
 	super SeparateCompilerVisitor
 	redef type COMPILER: SeparateMetaCompiler
+end
 
-	private fun rti_factory: RuntimeInternalsFactory
+redef class AbstractCompiler
+	# Unsafely tries to get a `MClass` by name
+	protected fun get_mclass(classname: String): MClass
 	do
-		return compiler.rti_factory
-	end
-
-	redef fun rti_repo_def(pname, ret_type, arguments)
-	do
-		var v = rti_factory.rti_repo_impl(self)
-		var res = true
-		if pname == "classof" then
-			v.classof(arguments[1], ret_type.as(not null))
-		else
-			res = false
-		end
-		return res
-	end
-
-	redef fun classinfo_def(pname, ret_type, arguments)
-	do
-		var v = rti_factory.classinfo_impl(self)
-		var res = true
-		if pname == "name" then
-			v.name(arguments[0], ret_type.as(not null))
-		#else if pname == "ancestors" then
-			#v.ancestors(arguments[0], ret_type.as(not null))
-		else
-			res = false
-		end
-		return res
+		var model = self.mainmodule.model
+		var mclasses = model.get_mclasses_by_name(classname)
+		assert mclasses != null and mclasses.length == 1
+		return mclasses.first
 	end
 end
 
 class SeparateMetaCompiler
 	super SeparateCompiler
+	#redef type VISITOR: SeparateMetaCompilerVisitor
 
-	private var rti_factory: RuntimeInternalsFactory
+	private var rti: RuntimeInternalsFactory
 	private var msp: MetaStructProvider is noinit
 	private var rta_bak: nullable RapidTypeAnalysis = null
 	protected var runtime_internals_mclasses: Collection[MClass] is noinit
 
 	init
 	do
-		msp = rti_factory.meta_struct_provider(self)
+		msp = rti.meta_struct_provider(self)
 		var classinfo = get_mclass("ClassInfo")
 		var typeinfo = get_mclass("TypeInfo")
 		var attrinfo = get_mclass("AttributeInfo")
@@ -135,7 +116,7 @@ class SeparateMetaCompiler
 		self.runtime_type_analysis = self.rta_bak
 		var c_name = mainmodule.c_name
 		self.new_file("{c_name}.meta")
-		var ms = rti_factory.model_saver(self)
+		var ms = rti.model_saver(self)
 		ms.save_model(self.mainmodule.model)
 	end
 
@@ -165,6 +146,7 @@ class SeparateMetaCompiler
                 var struct_type = ""
                 var field_name = ""
 		if mclass.name == "RuntimeInternalsRepo" then
+			print "ici"
 			self.header.add_decl("struct instance_{c_name} \{")
                         self.header.add_decl("const struct type* type;")
                         self.header.add_decl("const struct class* class;")
@@ -186,7 +168,6 @@ class SeparateMetaCompiler
 		else if runtime_internals_mclasses.has(mclass) then
 			struct_type = msp.mclass_to_struct_type(mclass)
                         field_name = mclass.name.to_lower
-			self.provide_declaration("instance_{c_name}", "struct instance_{c_name};")
                         self.header.add_decl("struct instance_{c_name} \{")
                         self.header.add_decl("const struct type* type;")
                         self.header.add_decl("const struct class* class;")
@@ -256,19 +237,10 @@ redef class AMethPropdef
 		var ret = mpropdef.msignature.return_mtype
 		var cc = v.compiler
 
-		if not cc isa SeparateMetaCompiler then
-			return super
-		end
-
 		if cname == "Sys" and pname == "rti_repo" then
 			var mclass = cc.get_mclass("RuntimeInternalsRepo")
 			v.require_declaration("NEW_{mclass.c_name}")
 			v.ret(v.new_expr("NEW_{mclass.c_name}()", ret.as(not null)))
-			return true
-		else if cname == "RuntimeInternalsRepo" then
-			v.rti_repo_def(pname, ret, arguments)
-		else if cname == "ClassInfo" then
-			v.classinfo_def(pname, ret, arguments)
 		end
 
 		return super
