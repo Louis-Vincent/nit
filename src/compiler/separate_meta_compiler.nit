@@ -68,6 +68,8 @@ class SeparateMetaCompilerVisitor
 		var res = true
 		if pname == "classof" then
 			v.classof(arguments[1], ret_type.as(not null))
+		else if pname == "object_type" then
+			v.object_type(arguments[1], ret_type.as(not null))
 		else
 			res = false
 		end

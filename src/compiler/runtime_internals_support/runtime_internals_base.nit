@@ -56,8 +56,17 @@ end
 
 abstract class RtiRepoImpl
 	super RuntimeInfoImpl
+
 	# Compile the interned method `RuntimeInternalsRepo::classof`.
-	fun classof(recv: RuntimeVariable, ret_type: MType) is abstract
+	fun classof(target: RuntimeVariable, ret_type: MType) is abstract
+
+	# Compile the interned method `RuntimeInternalsRepo::object_type`.
+	#
+	# `target` : Represents the runtime object to extract the type
+	# information of.
+	fun object_type(target: RuntimeVariable, ret_type: MType)
+	is abstract
+
 end
 
 abstract class RtiIterImpl

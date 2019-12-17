@@ -372,6 +372,7 @@ class DefaultModelSaver
 			if new_dep != null then deps.add(new_dep)
 		end
 		build_class_table
+		build_type_table
 	end
 
 	protected fun build_class_table
@@ -388,6 +389,26 @@ class DefaultModelSaver
 			mclass.require(v)
 			var mq = mclass.to_meta_query(mmodule)
 			v.add_decl("\{&class_{mclass.c_name}, {mq.to_addr} \},")
+		end
+		v.add_decl("\{ NULL, NULL \}")
+		v.add_decl("\};")
+	end
+
+	protected fun build_type_table
+	do
+		var v = cc.new_visitor
+		var mmodule = cc.mainmodule
+		var rta = cc.runtime_type_analysis.as(not null)
+		var mtypes = rta.live_types
+		cc.provide_declaration("type_table_entry_t", "struct type_table_entry_t \{ const struct type* type; const struct classtypeinfo_t* typeinfo; \};")
+		cc.provide_declaration("typeinfo_table", "extern struct type_table_entry_t typeinfo_table[{mtypes.length + 1}];")
+		v.require_declaration("type_table_entry_t")
+		v.add_decl("struct type_table_entry_t typeinfo_table[{mtypes.length + 1}] = \{")
+		for mtype in mtypes do
+			mtype.require(v)
+			v.require_declaration("type_{mtype.c_name}")
+			var mq = mtype.to_meta_query(mmodule)
+			v.add_decl("\{ &type_{mtype.c_name}, {mq.to_addr} \},")
 		end
 		v.add_decl("\{ NULL, NULL \}")
 		v.add_decl("\};")
@@ -1279,7 +1300,25 @@ end
 class DefaultRtiRepoImpl
 	super RtiRepoImpl
 
-	redef fun classof(recv, ret_type)
+	redef fun object_type(target, ret_type)
+	do
+		var cc = v.compiler
+		var typeinfo= cc.get_mclass("TypeInfo")
+		var entry = v.get_name("entry")
+		v.require_declaration("type_table_entry_t")
+		v.require_declaration("typeinfo_table")
+		v.require_declaration("NEW_{typeinfo.c_name}")
+		v.add("struct type_table_entry_t* {entry} = typeinfo_table;")
+		v.add("for(; {entry}->type != NULL; {entry}++) \{")
+		v.add("if({entry}->type == ({target}->type)) \{ break; \} ")
+		v.add("\}")
+		v.add("if({entry}->type == NULL) \{")
+		v.add_abort("class not found")
+		v.add("\}")
+		v.ret(v.new_expr("NEW_{typeinfo.c_name}((const struct typeinfo_t*){entry}->typeinfo)", ret_type))
+	end
+
+	redef fun classof(target, ret_type)
 	do
 		var cc = v.compiler
 		var classinfo = cc.get_mclass("ClassInfo")
@@ -1289,7 +1328,7 @@ class DefaultRtiRepoImpl
 		v.require_declaration("NEW_{classinfo.c_name}")
 		v.add("struct class_table_entry_t* {entry} = classinfo_table;")
 		v.add("for(; {entry}->class != NULL; {entry}++) \{")
-		v.add("if({entry}->class == ({recv}->class)) \{ break; \} ")
+		v.add("if({entry}->class == ({target}->class)) \{ break; \} ")
 		v.add("\}")
 		v.add("if({entry}->class == NULL) \{")
 		v.add_abort("class not found")
