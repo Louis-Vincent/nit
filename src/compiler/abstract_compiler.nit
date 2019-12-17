@@ -1517,6 +1517,9 @@ abstract class AbstractCompilerVisitor
 	# Unbox extern classes to be used in extern code (legacy NI and FFI)
 	fun unbox_extern(value: RuntimeVariable, mtype: MType): RuntimeVariable is abstract
 
+	# Generates a runtime `isa` test between two runtime types.
+	fun isa_test(type_addr1: String, type_addr2: String): RuntimeVariable is abstract
+
 	#  Generate a polymorphic subtype test
 	fun type_test(value: RuntimeVariable, mtype: MType, tag: String): RuntimeVariable is abstract
 

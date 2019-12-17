@@ -29,6 +29,8 @@ abstract class RuntimeInternalsFactory
 
 	fun classinfo_impl(v: AbstractCompilerVisitor): ClassInfoImpl is abstract
 
+	fun typeinfo_impl(v: AbstractCompilerVisitor): TypeInfoImpl is abstract
+
 	fun rti_repo_impl(v: AbstractCompilerVisitor): RtiRepoImpl is abstract
 
 	fun rti_iter_impl(v: AbstractCompilerVisitor): RtiIterImpl is abstract
@@ -45,6 +47,11 @@ abstract class RuntimeInfoImpl
 
 	# Compile the method `name` of `RuntimeInfo` interface.
 	fun name(recv: RuntimeVariable, ret_type: MType) is abstract
+
+	fun cast(recv: RuntimeVariable): String
+	do
+		return "((struct instance_{mclass.c_name}*){recv})"
+	end
 end
 
 abstract class ClassInfoImpl
@@ -52,6 +59,29 @@ abstract class ClassInfoImpl
 
 	# Compile the interned method `ClassInfo::ancestors`
 	fun ancestors(recv: RuntimeVariable, ret_type: MType) is abstract
+end
+
+abstract class TypeInfoImpl
+	super RuntimeInfoImpl
+	# Compile the interned method `TypeInfo::klass`.
+	fun klass(recv: RuntimeVariable, ret_type: MType) is abstract
+
+	# Compile the interned method `TypeInfo::is_formal_type`.
+	fun is_formal_type(recv: RuntimeVariable, ret_type: MType) is abstract
+
+	# Compile the interned method `TypeInfo::bound`.
+	fun bound(recv: RuntimeVariable, ret_type: MType) is abstract
+
+	# Compile the interned method `TypeInfo::type_arguments`.
+	fun type_arguments(recv: RuntimeVariable, ret_type: MType) is abstract
+
+	# Compile the interned method `TypeInfo::iza`.
+	fun iza(recv: RuntimeVariable, other: RuntimeVariable, ret_type: MType)
+	is abstract
+
+	# Compile the interned method `TypeInfo::native_equal`.
+	fun native_equal(recv: RuntimeVariable, other: RuntimeVariable, ret_type: MType)
+	is abstract
 end
 
 abstract class RtiRepoImpl

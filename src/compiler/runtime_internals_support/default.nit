@@ -28,6 +28,13 @@ class DefaultRuntimeInternals
 		return new DefaultClassInfoImpl(v, classinfo_mclass)
 	end
 
+	redef fun typeinfo_impl(v)
+	do
+		var cc = v.compiler
+		var typeinfo_mclass = cc.get_mclass("TypeInfo")
+		return new DefaultTypeInfoImpl(v, typeinfo_mclass)
+	end
+
 	redef fun rti_repo_impl(v)
 	do
 		var cc = v.compiler
@@ -73,6 +80,7 @@ unsigned int metatag;
 struct typeinfo_t {
 unsigned int metatag;
 const struct classinfo_t* classinfo;
+const char* name;
 };
 
 // MPropDef
@@ -123,6 +131,7 @@ const struct typeinfo_t* bound;
 struct classtypeinfo_t {
 unsigned int metatag;
 const struct classinfo_t* classinfo;
+const char* name;
 const struct type* type; // NULL if dead or static
 const struct typeinfo_t** resolution_table;
 const struct typeinfo_t* targs[];
@@ -495,6 +504,9 @@ redef class MClassType
 		v.add_decl("{selfquery.full_metainfo_decl} = \{")
 		v.add_decl("{selfquery.metatag_value},")
 		v.add_decl("{mclassquery.to_addr},")
+		var name_prefix = ""
+		if this isa MNullableType then name_prefix = "nullable "
+		v.add_decl("\"{name_prefix}{self.name}\",")
 		if not this.need_anchor and this.is_alive(cc) then
 			v.add_decl("&type_{this.c_name},")
 			v.add_decl("(const struct typeinfo_t**)resolution_table_{self.metainfo_uid},")
@@ -1265,33 +1277,30 @@ class DefaultRtiIterImpl
 
 	redef fun next(recv)
 	do
-		var casted_recv = "(struct instance_{mclass.c_name}*){recv}"
-		v.add("({casted_recv})->table++;")
-		v.add("({casted_recv})->last_to_managed = NULL;")
+		v.add("{cast(recv)}->table++;")
+		v.add("{cast(recv)}->last_to_managed = NULL;")
 		v.add("goto {self.v.frame.returnlabel.as(not null)};")
 	end
 
 	redef fun is_ok(recv, ret_type)
 	do
 		v.require_declaration("instance_{mclass.c_name}")
-		var casted_recv = "(struct instance_{mclass.c_name}*){recv}"
-		v.ret(v.new_expr("*({casted_recv})->table != NULL", ret_type))
+		v.ret(v.new_expr("*{cast(recv)}->table != NULL", ret_type))
 	end
 
 	redef fun item(recv, ret_type)
 	do
 		v.require_declaration("instance_{mclass.c_name}")
-		var casted_recv = "(struct instance_{mclass.c_name}*){recv}"
 		# If we already built a Nit object for the current table entry
-		v.add("if(({casted_recv})->last_to_managed != NULL) \{")
+		v.add("if({cast(recv)}->last_to_managed != NULL) \{")
 		v.add("/* avoid duplicate allocations of the same runtime info*/")
-		var res1 = v.new_expr("({casted_recv})->last_to_managed", ret_type)
+		var res1 = v.new_expr("{cast(recv)}->last_to_managed", ret_type)
 		v.ret(res1)
 		v.add("\} else \{")
 		var curr_entry = v.get_name("curr_entry")
 		var managed_val = v.get_name("managed_val")
-		v.add("void* {curr_entry} = (void*)*({casted_recv})->table;")
-		var res2 = v.new_expr("({casted_recv})->to_managed({curr_entry})", ret_type)
+		v.add("void* {curr_entry} = (void*)*{cast(recv)}->table;")
+		var res2 = v.new_expr("{cast(recv)}->to_managed({curr_entry})", ret_type)
 		v.ret(res2)
 		v.add("\}")
 	end
@@ -1334,5 +1343,62 @@ class DefaultRtiRepoImpl
 		v.add_abort("class not found")
 		v.add("\}")
 		v.ret(v.new_expr("NEW_{classinfo.c_name}({entry}->classinfo)", ret_type))
+	end
+end
+
+class DefaultTypeInfoImpl
+	super TypeInfoImpl
+
+	redef fun klass(recv, ret_type)
+	do
+		var cc = v.compiler
+		var classinfo = cc.get_mclass("ClassInfo")
+		v.require_declaration("NEW_{classinfo.c_name}")
+		v.require_declaration("instance_{mclass.c_name}")
+		var casted = cast(recv)
+		var inner  = v.get_name("inner")
+		v.add("const struct typeinfo_t* {inner} = {casted}->typeinfo;")
+		var res = v.new_expr("NEW_{classinfo.c_name}({inner}->classinfo)", ret_type)
+		v.ret(res)
+	end
+
+	redef fun is_formal_type(recv, ret_type)
+	do
+		v.require_declaration("instance_{mclass.c_name}")
+		var casted = cast(recv)
+		var res = v.new_expr("({casted}->metatag & 3) == 2", ret_type)
+		v.ret(res)
+	end
+
+	redef fun native_equal(recv, other, ret_type)
+	do
+		v.require_declaration("instance_{mclass.c_name}")
+		var casted = cast(recv)
+		var other2 = cast(other)
+		var res = v.new_expr("{casted}->typeinfo == {other2}->typeinfo)", ret_type)
+		v.ret(res)
+	end
+
+	redef fun iza(recv, other, ret_type)
+	do
+		v.require_declaration("instance_{mclass.c_name}")
+		var casted = cast(recv)
+		var other2 = cast(other)
+		var t1 = v.get_name("typeinfo")
+		var t2 = v.get_name("typeinfo")
+		v.add("const struct typeinfo_t* {t1} = {casted}->typeinfo;")
+		v.add("const struct typeinfo_t* {t2} = {other2}->typeinfo;")
+		v.add("if(({t1}->metatag & 3) == 1 && ({t2}->metatag & 3) == 1) \{")
+		var classtype1 = v.get_name("classtypeinfo")
+		var classtype2 = v.get_name("classtypeinfo")
+		v.add_decl("const struct type* {classtype1};")
+		v.add("{classtype1} = ((const struct classtypeinfo_t*){t1})->type;")
+		v.add_decl("const struct type* {classtype2};")
+		v.add("{classtype2} = ((const struct classtypeinfo_t*){t2})->type;")
+		var res = v.isa_test(classtype1, classtype2)
+		v.ret(v.autobox(res, ret_type))
+		v.add("\} else \{")
+		v.add_abort("subtype testing works only for living types")
+		v.add("\}")
 	end
 end

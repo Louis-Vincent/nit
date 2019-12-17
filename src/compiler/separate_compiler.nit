@@ -1854,6 +1854,25 @@ class SeparateCompilerVisitor
 		return self.new_expr("NEW_{mtype.mclass.c_name}(&type_{mtype.c_name})", mtype)
 	end
 
+	redef fun isa_test(type_addr1, type_addr2)
+	do
+		var res = self.new_var(bool_type)
+		var cltype = self.get_name("cltype")
+		self.add_decl("int {cltype};")
+		var idtype = self.get_name("idtype")
+		self.add_decl("int {idtype};")
+
+		self.add("{cltype} = {type_addr1}->color;")
+		self.add("{idtype} = {type_addr1}->id;")
+
+		self.add("if({cltype} >= {type_addr2}->table_size) \{")
+		self.add("{res} = 0;")
+		self.add("\} else \{")
+		self.add("{res} = {type_addr2}->type_table[{cltype}] == {idtype};")
+		self.add("\}")
+		return res
+	end
+
 	redef fun type_test(value, mtype, tag)
 	do
 		self.add("/* {value.inspect} isa {mtype} */")

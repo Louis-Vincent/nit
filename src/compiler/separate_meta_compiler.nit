@@ -51,6 +51,8 @@ redef class AbstractCompilerVisitor
 	fun classinfo_def(pname: String, ret_type: nullable MType, arguments: Array[RuntimeVariable]): Bool do return false
 
 	fun rti_iter_def(pname: String, ret_type: nullable MType, arguments: Array[RuntimeVariable]): Bool do return false
+
+	fun typeinfo_def(pname: String, ret_type: nullable MType, arguments: Array[RuntimeVariable]): Bool do return false
 end
 
 class SeparateMetaCompilerVisitor
@@ -100,6 +102,22 @@ class SeparateMetaCompilerVisitor
 			v.is_ok(arguments[0], ret_type.as(not null))
 		else if pname == "item" then
 			v.item(arguments[0], ret_type.as(not null))
+		else
+			res = false
+		end
+		return res
+	end
+
+	redef fun typeinfo_def(pname, ret_type, arguments)
+	do
+		var v = rti_factory.typeinfo_impl(self)
+		var res = true
+		if pname == "name" then
+			v.name(arguments[0], ret_type.as(not null))
+		else if pname == "klass" then
+			v.klass(arguments[0], ret_type.as(not null))
+		else if pname == "iza" then
+			v.iza(arguments[0], arguments[1], ret_type.as(not null))
 		else
 			res = false
 		end
@@ -293,6 +311,8 @@ redef class AMethPropdef
 			v.classinfo_def(pname, ret, arguments)
 		else if cname == "RuntimeInfoIterator" then
 			v.rti_iter_def(pname, ret, arguments)
+		else if cname == "TypeInfo" then
+			v.typeinfo_def(pname, ret, arguments)
 		end
 
 		return super
