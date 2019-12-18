@@ -369,8 +369,10 @@ class DefaultModelSaver
 		var deps = (new Array[CompilationDependency]).as_fifo
 		var rta = cc.runtime_type_analysis
 		assert rta != null
+
 		for mtype in rta.live_types do
-			if not mtype.is_alive(cc) then continue
+			#print "saving: {mtype}, {mtype.is_alive(cc)}"
+			#if not mtype.is_alive(cc) then continue
 			var dep = new SimpleDependency(mtype)
 			deps.add(dep)
 		end
@@ -1355,9 +1357,9 @@ class DefaultTypeInfoImpl
 		var classinfo = cc.get_mclass("ClassInfo")
 		v.require_declaration("NEW_{classinfo.c_name}")
 		v.require_declaration("instance_{mclass.c_name}")
-		var casted = cast(recv)
+		var recv2 = cast(recv)
 		var inner  = v.get_name("inner")
-		v.add("const struct typeinfo_t* {inner} = {casted}->typeinfo;")
+		v.add("const struct typeinfo_t* {inner} = {recv2}->typeinfo;")
 		var res = v.new_expr("NEW_{classinfo.c_name}({inner}->classinfo)", ret_type)
 		v.ret(res)
 	end
@@ -1365,28 +1367,28 @@ class DefaultTypeInfoImpl
 	redef fun is_formal_type(recv, ret_type)
 	do
 		v.require_declaration("instance_{mclass.c_name}")
-		var casted = cast(recv)
-		var res = v.new_expr("({casted}->metatag & 3) == 2", ret_type)
+		var recv2 = cast(recv)
+		var res = v.new_expr("({recv2}->metatag & 3) == 2", ret_type)
 		v.ret(res)
 	end
 
 	redef fun native_equal(recv, other, ret_type)
 	do
 		v.require_declaration("instance_{mclass.c_name}")
-		var casted = cast(recv)
+		var recv2 = cast(recv)
 		var other2 = cast(other)
-		var res = v.new_expr("{casted}->typeinfo == {other2}->typeinfo)", ret_type)
+		var res = v.new_expr("{recv2}->typeinfo == {other2}->typeinfo)", ret_type)
 		v.ret(res)
 	end
 
 	redef fun iza(recv, other, ret_type)
 	do
 		v.require_declaration("instance_{mclass.c_name}")
-		var casted = cast(recv)
+		var recv2 = cast(recv)
 		var other2 = cast(other)
 		var t1 = v.get_name("typeinfo")
 		var t2 = v.get_name("typeinfo")
-		v.add("const struct typeinfo_t* {t1} = {casted}->typeinfo;")
+		v.add("const struct typeinfo_t* {t1} = {recv2}->typeinfo;")
 		v.add("const struct typeinfo_t* {t2} = {other2}->typeinfo;")
 		v.add("if(({t1}->metatag & 3) == 1 && ({t2}->metatag & 3) == 1) \{")
 		var classtype1 = v.get_name("classtypeinfo")
@@ -1401,4 +1403,39 @@ class DefaultTypeInfoImpl
 		v.add_abort("subtype testing works only for living types")
 		v.add("\}")
 	end
+
+	redef fun type_arguments(recv, ret_type)
+	do
+		var recv2 = cast(recv)
+		var self_constr = "NEW_{mclass.c_name}"
+		var iter_mclass = v.compiler.get_mclass("RuntimeInfoIterator")
+		var mtype = iter_mclass.get_mtype([mclass.mclass_type])
+		var iter_constr = "NEW_{iter_mclass.c_name}"
+		v.require_declaration("instance_{mclass.c_name}")
+		v.require_declaration(iter_constr)
+		v.require_declaration(self_constr)
+
+		var iter = v.get_name("iter")
+		v.add_decl("struct instance_{iter_mclass.c_name}* {iter};")
+		v.add("{iter} = {iter_constr}((val* (*)(void*))&{self_constr}, (const struct metainfo_t**){recv2}->targs, &type_{mtype.c_name});")
+		v.ret(v.new_expr("{iter}", ret_type))
+	end
+
+	redef fun bound(recv, ret_type)
+	do
+		var recv2 = cast(recv)
+		var self_constr = "NEW_{mclass.c_name}"
+		v.require_declaration(self_constr)
+		v.require_declaration("instance_{mclass.c_name}")
+		# If its a formal type
+		v.add("if({recv2}->metatag == 2) \{")
+		var formal_type = v.get_name("formal_type")
+		v.add_decl("const struct formaltypeinfo_t* {formal_type};")
+		v.add("{formal_type} = (const struct formaltypeinfo_t*){recv2}->typeinfo;")
+		var res = v.new_expr("{self_constr}((const struct metainfo_t*){formal_type})", ret_type)
+		v.ret(res)
+		v.add("\}")
+		v.add_abort("only formal types have a bound")
+	end
 end
+
