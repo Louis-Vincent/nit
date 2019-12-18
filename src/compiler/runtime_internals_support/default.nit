@@ -853,8 +853,10 @@ redef class MClass
 		v.compiler.provide_declaration("ancestor_table_{self.c_name}", "extern {ancestor_table};")
 		if self.arity > 0 then
 			var mtypes_len = self.get_mtype_cache.values.length + 1
+			var param_table = "struct formaltypeinfo_t* paramtype_table_{self.c_name}[{arity + 1}]"
 			var type_table = "struct classtypeinfo_t* typeinfo_table_{self.c_name}[{mtypes_len}]"
-			v.compiler.provide_declaration("typeinfo_table_{c_name}", "extern {type_table};")
+			v.compiler.provide_declaration("typeinfo_table_{self.c_name}", "extern {type_table};")
+			v.compiler.provide_declaration("paramtype_table_{self.c_name}", "extern {param_table};")
 		end
 	end
 
@@ -868,6 +870,7 @@ redef class MClass
 		if self.arity > 0 then
 			var mtypes = self.get_mtype_cache.values
 			v.require_declaration("typeinfo_table_{self.c_name}")
+			v.require_declaration("paramtype_table_{self.c_name}")
 		else
 			self.mclass_type.require(v)
 		end
@@ -936,6 +939,7 @@ redef class MClass
 		v.add_decl("\};")
 		save_ancestor_table(v)
 		save_type_table(v)
+		save_typeparam_table(v)
 	end
 
 	fun linearized_ancestors(mmodule: MModule): SequenceRead[MClass]
@@ -965,6 +969,19 @@ redef class MClass
 
 	end
 
+	protected fun save_typeparam_table(v: AbstractCompilerVisitor)
+	do
+		if self.arity == 0 then return
+		var decl = "struct formaltypeinfo_t* paramtype_table_{c_name}[{mparameters.length + 1}]"
+		v.add_decl("{decl} = \{")
+		for mparam in mparameters do
+			var mq = mparam.to_meta_query(v.compiler.mainmodule)
+			v.add_decl("{mq.to_addr},")
+		end
+		v.add_decl("NULL")
+		v.add_decl("\};")
+	end
+
 	protected fun save_type_table(v: AbstractCompilerVisitor)
 	do
 		if self.arity == 0 then return
@@ -972,9 +989,8 @@ redef class MClass
 		var decl = "struct classtypeinfo_t* typeinfo_table_{c_name}[{mtypes.length + 1}]"
 		v.add_decl("{decl} = \{")
 		for mtype in mtypes do
-			#if not mtype.is_alive(v.compiler) then continue
-			var metaquery = mtype.to_meta_query(v.compiler.mainmodule)
-			v.add_decl("{metaquery.to_addr},")
+			var mq = mtype.to_meta_query(v.compiler.mainmodule)
+			v.add_decl("{mq.to_addr},")
 		end
 		v.add_decl("NULL") # NULL terminated sequence
 		v.add_decl("\};")
@@ -1241,6 +1257,26 @@ redef class RuntimeInfoImpl
 		v.add("{res} = {v.send(v.get_property("to_s_with_length", cstring_type), [raw_name, name_len]).as(not null)};")
 		v.ret(res)
 	end
+
+	# Generates C code that instantiate a new `RuntimeInfoIterator`
+	# paramaterized by `mclass.mclass_type`.
+	private fun new_iter(recv: RuntimeVariable, table_addr: String): RuntimeVariable
+	do
+		var recv2 = cast(recv)
+		var self_constr = "NEW_{mclass.c_name}"
+		var iter_mclass = v.compiler.get_mclass("RuntimeInfoIterator")
+		var mtype = iter_mclass.get_mtype([mclass.mclass_type])
+		var iter_constr = "NEW_{iter_mclass.c_name}"
+		v.require_declaration("instance_{mclass.c_name}")
+		v.require_declaration(iter_constr)
+		v.require_declaration(self_constr)
+
+		var iter = v.get_name("iter")
+		v.add_decl("struct instance_{iter_mclass.c_name}* {iter};")
+		v.add("{iter} = {iter_constr}((val* (*)(void*))&{self_constr}, (const struct metainfo_t**){table_addr}, &type_{mtype.c_name});")
+		var res = v.new_expr("{iter}", mtype)
+		return res
+	end
 end
 
 class DefaultClassInfoImpl
@@ -1271,6 +1307,49 @@ class DefaultClassInfoImpl
 		var classinfo_constr_ptr = "(val* (*)(void*))&{classinfo_constr}"
 		var res = v.new_expr("{iter_constr}({classinfo_constr_ptr}, {ancestor_table}, &type_{mtype.c_name})", ret_type)
 		v.ret(res)
+	end
+
+	redef fun properties(recv, ret_type)
+	do
+		var recv2 = cast(recv)
+		v.ret(v.autobox(self.new_iter(recv, "{recv2}->props"), ret_type))
+	end
+
+	redef fun type_parameters(recv, ret_type)
+	do
+		v.require_declaration("instance_{mclass.c_name}")
+		var recv2 = cast(recv)
+		var len = v.new_expr("({recv2}->metatag >> 16) & 10", v.mmodule.int_type)
+		var nat = v.native_array_instance(mclass.mclass_type, len)
+		var i = v.get_name("i")
+		v.add_decl("int {i};")
+	end
+
+	private fun get_class_kind(recv: RuntimeVariable): RuntimeVariable
+	do
+		var recv2 = cast(recv)
+		var class_kind = v.get_name("class_kind")
+		v.add_decl("int {class_kind};")
+		v.add("{class_kind} = ({recv2}->metatag >> 10) & 3;")
+		return v.new_expr("{class_kind}", v.mmodule.int_type)
+	end
+
+	redef fun is_interface(recv, ret_type)
+	do
+		var class_kind = get_class_kind(recv)
+		v.ret(v.new_expr("{class_kind} == 2", ret_type))
+	end
+
+	redef fun is_abstract(recv, ret_type)
+	do
+		var class_kind = get_class_kind(recv)
+		v.ret(v.new_expr("{class_kind} == 1", ret_type))
+	end
+
+	redef fun is_universal(recv, ret_type)
+	do
+		var class_kind = get_class_kind(recv)
+		v.ret(v.new_expr("{class_kind} == 3", ret_type))
 	end
 end
 
@@ -1407,18 +1486,7 @@ class DefaultTypeInfoImpl
 	redef fun type_arguments(recv, ret_type)
 	do
 		var recv2 = cast(recv)
-		var self_constr = "NEW_{mclass.c_name}"
-		var iter_mclass = v.compiler.get_mclass("RuntimeInfoIterator")
-		var mtype = iter_mclass.get_mtype([mclass.mclass_type])
-		var iter_constr = "NEW_{iter_mclass.c_name}"
-		v.require_declaration("instance_{mclass.c_name}")
-		v.require_declaration(iter_constr)
-		v.require_declaration(self_constr)
-
-		var iter = v.get_name("iter")
-		v.add_decl("struct instance_{iter_mclass.c_name}* {iter};")
-		v.add("{iter} = {iter_constr}((val* (*)(void*))&{self_constr}, (const struct metainfo_t**){recv2}->targs, &type_{mtype.c_name});")
-		v.ret(v.new_expr("{iter}", ret_type))
+		v.ret(v.autobox(self.new_iter(recv, "{recv2}->targs"), ret_type))
 	end
 
 	redef fun bound(recv, ret_type)

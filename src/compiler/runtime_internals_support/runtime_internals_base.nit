@@ -57,8 +57,23 @@ end
 abstract class ClassInfoImpl
 	super RuntimeInfoImpl
 
-	# Compile the interned method `ClassInfo::ancestors`
+	# Compile the interned method `ClassInfo::ancestors`.
 	fun ancestors(recv: RuntimeVariable, ret_type: MType) is abstract
+
+	# Compile the interned method `ClassInfo::properties`.
+	fun properties(recv: RuntimeVariable, ret_type: MType) is abstract
+
+	# Compile the interned method `ClassInfo::type_parameters`.
+	fun type_parameters(recv: RuntimeVariable, ret_type: MType) is abstract
+
+	# Compile the interned method `ClassInfo::is_interface`.
+	fun is_interface(recv: RuntimeVariable, ret_type: MType) is abstract
+
+	# Compile the interned method `ClassInfo::is_abstract`.
+	fun is_abstract(recv: RuntimeVariable, ret_type: MType) is abstract
+
+	# Compile the interned method `ClassInfo::is_universal`.
+	fun is_universal(recv: RuntimeVariable, ret_type: MType) is abstract
 end
 
 abstract class TypeInfoImpl
