@@ -131,23 +131,23 @@ class SeparateMetaCompiler
 	private var rti_factory: RuntimeInternalsFactory
 	private var msp: MetaStructProvider is noinit
 	private var rta_bak: nullable RapidTypeAnalysis = null
-	protected var runtime_internals_mclasses: Collection[MClass] is noinit
+	#protected var runtime_internals_mclasses: Collection[MClass] is noinit
 
 	init
 	do
 		msp = rti_factory.meta_struct_provider(self)
-		var classinfo = get_mclass("ClassInfo")
-		var typeinfo = get_mclass("TypeInfo")
-		var attrinfo = get_mclass("AttributeInfo")
-		var methodinfo = get_mclass("MethodInfo")
-		var vtypeinfo = get_mclass("VirtualTypeInfo")
-		var rt_repo = get_mclass("RuntimeInternalsRepo")
-		self.runtime_internals_mclasses = [classinfo, typeinfo, attrinfo, methodinfo, vtypeinfo, rt_repo]
+		#var classinfo = get_mclass("ClassInfo")
+		#var typeinfo = get_mclass("TypeInfo")
+		#var attrinfo = get_mclass("AttributeInfo")
+		#var methodinfo = get_mclass("MethodInfo")
+		#var vtypeinfo = get_mclass("VirtualTypeInfo")
+		#var rt_repo = get_mclass("RuntimeInternalsRepo")
+		#self.runtime_internals_mclasses = [classinfo, typeinfo, attrinfo, methodinfo, vtypeinfo, rt_repo]
 		var iterator_class = get_mclass("RuntimeInfoIterator")
 		var rta = self.runtime_type_analysis
 		if rta != null then
 			rta.live_classes.add(iterator_class)
-			for mclass in self.runtime_internals_mclasses do
+			for mclass in self.rti_mclasses.values do
 				var mclass_type = mclass.mclass_type
 				rta.live_classes.add(mclass)
 				rta.live_types.add(mclass_type)
@@ -208,9 +208,9 @@ class SeparateMetaCompiler
                         self.header.add_decl("const struct class* class;")
                         self.header.add_decl("\};")
 			self.provide_declaration("NEW_{c_name}", "{mtype.ctype} NEW_{c_name}();")
-                        v.require_declaration("type_{c_name}")
-                        v.require_declaration("class_{c_name}")
-                        v.add_decl("/* allocate {mtype} */")
+			v.require_declaration("type_{c_name}")
+			v.require_declaration("class_{c_name}")
+			v.add_decl("/* allocate {mtype} */")
 			v.add_decl("{mtype.ctype} NEW_{c_name}() \{")
 			var recv = v.get_name("self")
 			v.add_decl("struct instance_{c_name} *{recv};")
@@ -221,31 +221,29 @@ class SeparateMetaCompiler
 			v.add("return (val*){recv};")
 			v.add("\}")
 			return true
-		else if runtime_internals_mclasses.has(mclass) then
-			struct_type = msp.mclass_to_struct_type(mclass)
-                        field_name = mclass.name.to_lower
-			self.provide_declaration("instance_{c_name}", "struct instance_{c_name};")
-                        self.header.add_decl("struct instance_{c_name} \{")
-                        self.header.add_decl("const struct type* type;")
-                        self.header.add_decl("const struct class* class;")
-			self.header.add_decl("const {struct_type}* {field_name};")
-                        self.header.add_decl("\};")
+			#else if self.rti_mclasses.has_key(mclass.name) then
+			#else if struct_type = msp.mclass_to_struct_type(mclass)
+                        #else if field_name = mclass.name.to_lower
+			#else if self.provide_declaration("instance_{c_name}", "struct instance_{c_name};")
+                        #else if self.header.add_decl("struct instance_{c_name} \{")
+                        #else if self.header.add_decl("const struct type* type;")
+                        #else if self.header.add_decl("const struct class* class;")
+			#else if self.header.add_decl("const {struct_type}* {field_name};")
+                        #else if self.header.add_decl("\};")
 		else if mclass.name == "RuntimeInfoIterator" then
 			# `RuntimeInfoIterator` must have its own way of
 			# generating its allocator.
 			self.header.add_decl("struct instance_{c_name} \{")
 			self.header.add_decl("const struct type* type;")
                         self.header.add_decl("const struct class* class;")
-			self.header.add_decl("val* (*to_managed)(void*);")
                         self.header.add_decl("const struct metainfo_t** table;")
-			self.header.add_decl("val* last_to_managed;")
                         self.header.add_decl("\};")
 			self.provide_declaration("instance_{c_name}", "struct instance_{c_name};")
-			self.provide_declaration("NEW_{c_name}", "{mtype.ctype} NEW_{c_name}(val* (*to_managed)(void*), const struct metainfo_t** table, const struct type* type);")
+			self.provide_declaration("NEW_{c_name}", "{mtype.ctype} NEW_{c_name}(const struct metainfo_t** table, const struct type* type);")
                         v.require_declaration("class_{c_name}")
 
                         v.add_decl("/* allocate {mtype} */")
-			v.add_decl("{mtype.ctype} NEW_{c_name}(val* (*to_managed)(void*), const struct metainfo_t** table, const struct type* type) \{")
+			v.add_decl("{mtype.ctype} NEW_{c_name}(const struct metainfo_t** table, const struct type* type) \{")
 			var recv = v.get_name("self")
 			v.add_decl("struct instance_{c_name} *{recv};")
 			var alloc = v.nit_alloc("sizeof(struct instance_{c_name})", mclass.full_name)
@@ -253,9 +251,7 @@ class SeparateMetaCompiler
                         v.add("{recv}->class = &class_{c_name};")
 			v.add("{recv}->type = type;")
 			hardening_live_type(v, "type")
-			v.add("{recv}->to_managed = to_managed;")
                         v.add("{recv}->table = table;")
-			v.add("{recv}->last_to_managed = NULL;")
 			v.add("return (val*){recv};")
 			v.add("\}")
 			return true
@@ -264,25 +260,25 @@ class SeparateMetaCompiler
 			res = false
 		end
 
-                if res then
-                        assert struct_type != ""
-                        assert field_name != ""
-                        self.provide_declaration("NEW_{c_name}", "{mtype.ctype} NEW_{c_name}(const {struct_type}* metainfo);")
-                        v.require_declaration("type_{c_name}")
-                        v.require_declaration("class_{c_name}")
+		#if res then
+                #        assert struct_type != ""
+                #        assert field_name != ""
+                #        self.provide_declaration("NEW_{c_name}", "{mtype.ctype} NEW_{c_name}(const {struct_type}* metainfo);")
+                #        v.require_declaration("type_{c_name}")
+                #        v.require_declaration("class_{c_name}")
 
-                        v.add_decl("/* allocate {mtype} */")
-			v.add_decl("{mtype.ctype} NEW_{c_name}(const {struct_type}* metainfo) \{")
-			var recv = v.get_name("self")
-			v.add_decl("struct instance_{c_name} *{recv};")
-			var alloc = v.nit_alloc("sizeof(struct instance_{c_name})", mclass.full_name)
-			v.add("{recv} = {alloc};")
-                        v.add("{recv}->class = &class_{c_name};")
-			v.add("{recv}->type = &type_{c_name};")
-                        v.add("{recv}->{field_name} = metainfo;")
-			v.add("return (val*){recv};")
-			v.add("\}")
-                end
+                #        v.add_decl("/* allocate {mtype} */")
+		#	v.add_decl("{mtype.ctype} NEW_{c_name}(const {struct_type}* metainfo) \{")
+		#	var recv = v.get_name("self")
+		#	v.add_decl("struct instance_{c_name} *{recv};")
+		#	var alloc = v.nit_alloc("sizeof(struct instance_{c_name})", mclass.full_name)
+		#	v.add("{recv} = {alloc};")
+                #        v.add("{recv}->class = &class_{c_name};")
+		#	v.add("{recv}->type = &type_{c_name};")
+                #        v.add("{recv}->{field_name} = metainfo;")
+		#	v.add("return (val*){recv};")
+		#	v.add("\}")
+                #end
 
 		return res
 	end

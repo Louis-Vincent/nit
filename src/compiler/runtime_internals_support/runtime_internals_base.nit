@@ -4,6 +4,24 @@ module runtime_internals_base
 import separate_compiler
 
 redef class AbstractCompiler
+	var rti_mclasses: Map[String, MClass] = new ArrayMap[String, MClass]
+
+	init
+	do
+		var classinfo = get_mclass("ClassInfo")
+		var typeinfo = get_mclass("TypeInfo")
+		var attrinfo = get_mclass("AttributeInfo")
+		var methodinfo = get_mclass("MethodInfo")
+		var vtypeinfo = get_mclass("VirtualTypeInfo")
+		var rt_repo = get_mclass("RuntimeInternalsRepo")
+		self.rti_mclasses["ClassInfo"] = classinfo
+		self.rti_mclasses["TypeInfo"] = typeinfo
+		self.rti_mclasses["AttributeInfo"] = attrinfo
+		self.rti_mclasses["MethodInfo"] = methodinfo
+		self.rti_mclasses["VirtualTypeInfo"] = vtypeinfo
+		self.rti_mclasses["RuntimeInternalsRepo"] = rt_repo
+	end
+
 	# NOTE: duplicate TODO: put it in `AbstractCompiler`
 	# Unsafely tries to get a `MClass` by name
 	fun get_mclass(classname: String): MClass
@@ -47,11 +65,6 @@ abstract class RuntimeInfoImpl
 
 	# Compile the method `name` of `RuntimeInfo` interface.
 	fun name(recv: RuntimeVariable, ret_type: MType) is abstract
-
-	fun cast(recv: RuntimeVariable): String
-	do
-		return "((struct instance_{mclass.c_name}*){recv})"
-	end
 end
 
 abstract class ClassInfoImpl

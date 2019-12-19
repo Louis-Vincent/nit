@@ -72,83 +72,94 @@ class DefaultStructProvider
 
 	redef fun compile_metainfo_header_structs
 	do
-		cc.header.add_decl("""
-struct metainfo_t {
-unsigned int metatag;
-};
+		var classinfo = cc.rti_mclasses["ClassInfo"]
+		var typeinfo = cc.rti_mclasses["TypeInfo"]
+		var attrinfo = cc.rti_mclasses["AttributeInfo"]
+		var vtypeinfo = cc.rti_mclasses["VirtualTypeInfo"]
+		var methodinfo = cc.rti_mclasses["MethodInfo"]
 
-struct typeinfo_t {
-unsigned int metatag;
-const struct classinfo_t* classinfo;
-const char* name;
-};
+		cc.header.add_decl("struct metainfo_t \{")
+		cc.header.add_decl("const struct type* type;")
+		cc.header.add_decl("const struct class* class;")
+		cc.header.add_decl("unsigned int metatag;")
+		cc.header.add_decl("\};")
 
-// MPropDef
-struct propinfo_t {
-unsigned int metatag;
-const struct classinfo_t* classinfo;
-const char* name;
-};
+		cc.header.add_decl("struct propinfo_t \{")
+		cc.header.add_decl("const struct type* type;")
+		cc.header.add_decl("const struct class* class;")
+		cc.header.add_decl("unsigned int metatag;")
+		cc.header.add_decl("const struct classinfo_t* classinfo;")
+		cc.header.add_decl("const char* name;")
+		cc.header.add_decl("\};")
 
-// MAttributeDef
-struct attrinfo_t {
-unsigned int metatag;
-const struct classinfo_t* classinfo;
-const char* name;
-const struct typeinfo_t* static_type;
-};
+		cc.header.add_decl("struct formaltypeinfo_t \{")
+		cc.header.add_decl("const struct type* type;")
+		cc.header.add_decl("const struct class* class;")
+		cc.header.add_decl("unsigned int metatag;")
+		cc.header.add_decl("const struct classinfo_t* classinfo;")
+		cc.header.add_decl("const char* name;")
+		cc.header.add_decl("const struct typeinfo_t* bound;")
+		cc.header.add_decl("\};")
 
-// MMethDef
-struct methodinfo_t {
-unsigned int metatag;
-const struct classinfo_t* classinfo;
-const char* name;
-const struct typeinfo_t* signature[];
-};
+		cc.header.add_decl("struct classtypeinfo_t \{")
+		cc.header.add_decl("const struct type* type;")
+		cc.header.add_decl("const struct class* class;")
+		cc.header.add_decl("unsigned int metatag;")
+		cc.header.add_decl("const struct classinfo_t* classinfo;")
+		cc.header.add_decl("const char* name;")
+		cc.header.add_decl("const struct type* type_ptr; // NULL if dead or static")
+		cc.header.add_decl("const struct typeinfo_t** resolution_table;")
+		cc.header.add_decl("const struct typeinfo_t* targs[];")
+		cc.header.add_decl("\};")
 
-// MVirtualTypeDef
-struct vtypeinfo_t {
-unsigned int metatag;
-const struct classinfo_t* classinfo;
-const char* name;
-const struct formaltypeinfo_t* vtype;
-const struct typeinfo_t* bound;
-};
+		cc.header.add_decl("struct classinfo_t \{")
+		cc.header.add_decl("const struct type* type;")
+		cc.header.add_decl("const struct class* class;")
+		cc.header.add_decl("unsigned int metatag;")
+		cc.header.add_decl("const struct class* class_ptr;")
+		cc.header.add_decl("/* if `self` is not generic, then `typeinfo_table` points directly to its type*/")
+		cc.header.add_decl("struct classtypeinfo_t** typeinfo_table;")
+		cc.header.add_decl("const char* name;")
+		cc.header.add_decl("/* We always store type parameters first if any*/")
+		cc.header.add_decl("struct classinfo_t** ancestors;")
+		cc.header.add_decl("const struct propinfo_t* props[];")
+		cc.header.add_decl("\};")
 
-/*
-This structure is shared by virtual types and parameter types.
-mix: typeinfo_t + propinfo_t
-*/
-// MVirtualType + MParameterType = MFormalType
-struct formaltypeinfo_t {
-unsigned int metatag;
-const struct classinfo_t* classinfo;
-const char* name;
-const struct typeinfo_t* bound;
-};
+		cc.header.add_decl("struct typeinfo_t \{")
+		cc.header.add_decl("const struct type* type;")
+		cc.header.add_decl("const struct class* class;")
+		cc.header.add_decl("unsigned int metatag;")
+		cc.header.add_decl("const struct classinfo_t* classinfo;")
+		cc.header.add_decl("const char* name;")
+		cc.header.add_decl("\};")
 
-// MClassType
-struct classtypeinfo_t {
-unsigned int metatag;
-const struct classinfo_t* classinfo;
-const char* name;
-const struct type* type; // NULL if dead or static
-const struct typeinfo_t** resolution_table;
-const struct typeinfo_t* targs[];
-};
+		cc.header.add_decl("struct attrinfo_t \{")
+		cc.header.add_decl("const struct type* type;")
+		cc.header.add_decl("const struct class* class;")
+		cc.header.add_decl("unsigned int metatag;")
+		cc.header.add_decl("const struct classinfo_t* classinfo;")
+		cc.header.add_decl("const char* name;")
+		cc.header.add_decl("const struct typeinfo_t* static_type;")
+		cc.header.add_decl("\};")
 
-// MClass
-struct classinfo_t {
-unsigned int metatag;
-const struct class* class_ptr;
-/* if `self` is not generic, then `typeinfo_table` points directly to its type*/
-struct classtypeinfo_t** typeinfo_table;
-const char* name;
-/* We always store type parameters first if any*/
-struct classinfo_t** ancestors;
-const struct propinfo_t* props[];
-};
-""")
+		cc.header.add_decl("struct methodinfo_t \{")
+		cc.header.add_decl("const struct type* type;")
+		cc.header.add_decl("const struct class* class;")
+		cc.header.add_decl("unsigned int metatag;")
+		cc.header.add_decl("const struct classinfo_t* classinfo;")
+		cc.header.add_decl("const char* name;")
+		cc.header.add_decl("const struct typeinfo_t* signature[];")
+		cc.header.add_decl("\};")
+
+		cc.header.add_decl("struct vtypeinfo_t \{")
+		cc.header.add_decl("const struct type* type;")
+		cc.header.add_decl("const struct class* class;")
+		cc.header.add_decl("unsigned int metatag;")
+		cc.header.add_decl("const struct classinfo_t* classinfo;")
+		cc.header.add_decl("const char* name;")
+		cc.header.add_decl("const struct formaltypeinfo_t* vtype;")
+		cc.header.add_decl("const struct typeinfo_t* bound;")
+		cc.header.add_decl("\};")
 	end
 end
 
@@ -220,22 +231,27 @@ abstract class SavableMEntity
 		self.write_field_values(v)
 	end
 
+	# C declaration dependencies.
 	fun requirements(v: AbstractCompilerVisitor) do end
 
+	# Writes the savable content of `self`.
 	fun write_field_values(v: AbstractCompilerVisitor) is abstract
 
+	# Converts `self` to a dependency.
 	fun to_dep: CompilationDependency
 	do
 		if is_saved then return null_dependency
 		return new SimpleDependency(self)
 	end
 
+	# Inverse the control of `Visitor::require_declaration`.
 	fun require(v: AbstractCompilerVisitor)
 	do
 		var mq = to_meta_query(v.compiler.mainmodule)
 		v.require_declaration(mq.metainfo_uid)
 	end
 
+	# Provides `self` as a declaration.
 	fun provide_declaration(v: AbstractCompilerVisitor)
 	do
 		var mq = self.to_meta_query(v.compiler.mainmodule)
@@ -269,10 +285,14 @@ abstract class SavableMEntity
 		return res
 	end
 
+	# Returns `self` as MetaQueryable interface.
 	fun to_meta_query(mmodule: MModule): MetaQuery is abstract
 end
 
+# Base class for all meta queryable objects. An object who is meta queryable
+# exposes its unique meta data value.
 interface MetaQuery
+
 	fun metatag_value: Int
 	do
 		# NOTE: is not a good pratice to hardcode `if`s with type
@@ -295,6 +315,8 @@ interface MetaQuery
 	fun to_addr: String do return "&{metainfo_uid}"
 end
 
+# Base class for all delayed compilation dependency that needs to be handled in
+# the future.
 abstract class CompilationDependency
 	fun is_out_of_date: Bool is abstract
 	fun resolve_dependency(cc: SeparateCompiler): nullable CompilationDependency
@@ -325,6 +347,7 @@ class SimpleDependency
 	end
 end
 
+# Composite of multiple `CompilationDependency`.
 class AggregateDependencies
 	super CompilationDependency
 	protected var dependencies = new Array[CompilationDependency]
@@ -492,6 +515,7 @@ redef class MClassType
 	end
 
 	redef fun write_field_values(v)
+
 	do
 		generic_write_field_values(v, self)
 		write_resolution_table(v)
@@ -501,9 +525,12 @@ redef class MClassType
 	do
 		var mmodule = v.compiler.mainmodule
 		var cc = v.compiler
+		var rti_mclass = cc.rti_mclasses["TypeInfo"]
 		var mclassquery = mclass.to_meta_query(mmodule)
 		var selfquery = this.to_meta_query(mmodule)
 		v.add_decl("{selfquery.full_metainfo_decl} = \{")
+		v.add_decl("&type_{rti_mclass.mclass_type.c_name},")
+		v.add_decl("&class_{rti_mclass.c_name},")
 		v.add_decl("{selfquery.metatag_value},")
 		v.add_decl("{mclassquery.to_addr},")
 		var name_prefix = ""
@@ -630,10 +657,13 @@ redef class MVirtualType
 	do
 		var mmodule = v.compiler.mainmodule
 		var vtypedef = self.most_specific_def(mmodule)
+		var rti_mclass = v.compiler.rti_mclasses["TypeInfo"]
 		var selfquery = this.to_meta_query(mmodule)
 		var mclassquery = vtypedef.mclass.to_meta_query(mmodule)
 		var sbquery = vtypedef.static_bound.to_meta_query(mmodule)
 		v.add_decl("{selfquery.full_metainfo_decl} = \{")
+		v.add_decl("&type_{rti_mclass.mclass_type.c_name},")
+		v.add_decl("&class_{rti_mclass.c_name},")
 		v.add_decl("{selfquery.metatag_value},")
 		v.add_decl("{mclassquery.to_addr},")
 		v.add_decl("\"{self.name}\",")
@@ -698,11 +728,14 @@ redef class MParameterType
 	do
 		var mmodule = v.compiler.mainmodule
 		var static_bound = static_bound(mmodule)
+		var rti_mclass = v.compiler.rti_mclasses["TypeInfo"]
 		var selfquery = this.to_meta_query(mmodule)
 		var mclassquery = mclass.to_meta_query(mmodule)
 		var staticquery = static_bound.to_meta_query(mmodule)
 
 		v.add_decl("{selfquery.full_metainfo_decl} = \{")
+		v.add_decl("&type_{rti_mclass.mclass_type.c_name},")
+		v.add_decl("&class_{rti_mclass.c_name},")
 		v.add_decl("{selfquery.metatag_value},")
 		v.add_decl("{mclassquery.to_addr},")
 		v.add_decl("\"{self.name}\",")
@@ -846,6 +879,9 @@ redef class MClass
 	redef fun provide_declaration(v)
 	do
 		super
+		var cc = v.compiler
+		var classinfo = cc.rti_mclasses["ClassInfo"]
+
 		var linearized_ancestors = linearized_ancestors(v.compiler.mainmodule)
 		# We add 1 for NULL end mark
 		var ancestors_len = linearized_ancestors.length + 1
@@ -900,11 +936,14 @@ redef class MClass
 	redef fun write_field_values(v)
 	do
 		var cc = v.compiler
+		var classinfo = cc.rti_mclasses["ClassInfo"]
 		var mmodule = cc.mainmodule
 		var mpropdefs = most_specific_mpropdefs(mmodule)
 		var metaquery = self.to_meta_query(mmodule)
 		# The instance
 		v.add_decl("{metaquery.full_metainfo_decl} = \{")
+		v.add_decl("&type_{classinfo.mclass_type.c_name},")
+		v.add_decl("&class_{classinfo.c_name},")
 		v.add_decl("{metaquery.metatag_value},")
 		if self.is_alive(cc) then
 			v.add_decl("&class_{self.c_name},") # pointer to the reflected class
@@ -955,8 +994,8 @@ redef class MClass
 
 	protected fun save_ancestor_table(v: AbstractCompilerVisitor)
 	do
-		var compiler = v.compiler
-		var mmodule = compiler.mainmodule
+		var cc = v.compiler
+		var mmodule = cc.mainmodule
 		var ancestors = self.linearized_ancestors(mmodule)
 		var decl = "struct classinfo_t* ancestor_table_{self.c_name}[{ancestors.length + 1}]"
 		v.add_decl("{decl} = \{")
@@ -1064,14 +1103,17 @@ redef class MAttributeDef
 
 	redef fun write_field_values(v)
 	do
-		var compiler = v.compiler
-		assert compiler isa SeparateCompiler
-		var mmodule = compiler.mainmodule
+		var cc = v.compiler
+		var rti_mclass = cc.rti_mclasses["AttributeInfo"]
+		var typeinfo = cc.rti_mclasses["TypeInfo"]
+		var mmodule = cc.mainmodule
 		var static_mtype = self.static_mtype.as(not null)
 		var mclassquery = mclass.to_meta_query(mmodule)
 		var stquery = static_mtype.to_meta_query(mmodule)
 		## The instance
 		v.add_decl("{full_metainfo_decl} = \{")
+		v.add_decl("&type_{rti_mclass.mclass_type.c_name},")
+		v.add_decl("&class_{rti_mclass.c_name},")
                 v.add_decl("{metatag_value},")
                 v.add_decl("{mclassquery.to_addr},")
 		v.add_decl("\"{self.name}\",")
@@ -1142,13 +1184,17 @@ redef class MMethodDef
 
 	redef fun write_field_values(v)
 	do
-		var compiler = v.compiler
-		var mmodule = compiler.mainmodule
+		var cc = v.compiler
+		var rti_mclass = cc.rti_mclasses["MethodInfo"]
+		var typeinfo = cc.rti_mclasses["TypeInfo"]
+		var mmodule = cc.mainmodule
 		var mclassquery = mclass.to_meta_query(mmodule)
 		var msignature = self.msignature
 
 		## The instance
 		v.add_decl("{full_metainfo_decl} = \{")
+		v.add_decl("&type_{rti_mclass.mclass_type.c_name},")
+		v.add_decl("&class_{rti_mclass.c_name},")
                 v.add_decl("{metatag_value},")
                 v.add_decl("&{mclassquery.metainfo_uid},")
 		v.add_decl("\"{self.name}\",")
@@ -1202,6 +1248,9 @@ redef class MVirtualTypeDef
 
 	redef fun write_field_values(v)
 	do
+		var cc = v.compiler
+		var rti_mclass = cc.rti_mclasses["VirtualTypeInfo"]
+		var typeinfo = cc.rti_mclasses["TypeInfo"]
 		var mmodule = v.compiler.mainmodule
 		var this = self.to_meta_query(mmodule)
 		var mclass = mclass.to_meta_query(mmodule)
@@ -1209,6 +1258,8 @@ redef class MVirtualTypeDef
 		var vtype = mvirtualtype.to_meta_query(mmodule)
 
 		v.add_decl("{full_metainfo_decl} = \{")
+		v.add_decl("&type_{rti_mclass.mclass_type.c_name},")
+		v.add_decl("&class_{rti_mclass.c_name},")
 		v.add_decl("{this.metatag_value},")
 		v.add_decl("{mclass.to_addr},")
 		v.add_decl("\"{this.name}\",")
@@ -1242,8 +1293,6 @@ redef class RuntimeInfoImpl
 	redef fun name(recv: RuntimeVariable, ret_type: MType)
 	do
 		var c_name = self.mclass.c_name
-		var fieldname = self.mclass.name.to_lower
-		v.require_declaration("instance_{c_name}")
 		var cstring_type = v.mmodule.c_string_type
 		var string_type = v.mmodule.string_type
 		var int_type = v.mmodule.int_type
@@ -1252,10 +1301,31 @@ redef class RuntimeInfoImpl
 		var raw_name = v.new_var(cstring_type)
 		var name_len = v.new_var(int_type)
 		var res = v.new_var(string_type)
-		v.add("{raw_name} = (char*)((struct instance_{c_name}*){recv})->{fieldname}->name;")
+		v.add("{raw_name} = (char*){cast(recv)}->name;")
 		v.add("{name_len} = (long)strlen({raw_name});")
 		v.add("{res} = {v.send(v.get_property("to_s_with_length", cstring_type), [raw_name, name_len]).as(not null)};")
 		v.ret(res)
+	end
+
+	private fun cast(recv: RuntimeVariable): String
+	do
+		var metatype = ""
+		if mclass.name == "ClassInfo" then
+			metatype = "classinfo_t"
+		else if mclass.name == "VirtualTypeInfo" then
+			metatype = "vtypeinfo_t"
+		else if mclass.name == "AttributeInfo" then
+			metatype = "attrinfo_t"
+		else if mclass.name == "MethodInfo" then
+			metatype = "methodinfo_t"
+		else if mclass.name == "TypeInfo" then
+			metatype = "typeinfo_t"
+		else if mclass.name == "RuntimeInfoIterator" then
+			metatype = "instance_{mclass.c_name}"
+		else
+			abort
+		end
+		return "((struct {metatype}*){recv})"
 	end
 
 	# Generates C code that instantiate a new `RuntimeInfoIterator`
@@ -1263,17 +1333,15 @@ redef class RuntimeInfoImpl
 	private fun new_iter(recv: RuntimeVariable, table_addr: String): RuntimeVariable
 	do
 		var recv2 = cast(recv)
-		var self_constr = "NEW_{mclass.c_name}"
 		var iter_mclass = v.compiler.get_mclass("RuntimeInfoIterator")
 		var mtype = iter_mclass.get_mtype([mclass.mclass_type])
 		var iter_constr = "NEW_{iter_mclass.c_name}"
-		v.require_declaration("instance_{mclass.c_name}")
+		v.require_declaration("type_{mtype.c_name}")
 		v.require_declaration(iter_constr)
-		v.require_declaration(self_constr)
 
 		var iter = v.get_name("iter")
-		v.add_decl("struct instance_{iter_mclass.c_name}* {iter};")
-		v.add("{iter} = {iter_constr}((val* (*)(void*))&{self_constr}, (const struct metainfo_t**){table_addr}, &type_{mtype.c_name});")
+		v.add_decl("val* {iter};")
+		v.add("{iter} = {iter_constr}((const struct metainfo_t**){table_addr}, &type_{mtype.c_name});")
 		var res = v.new_expr("{iter}", mtype)
 		return res
 	end
@@ -1285,28 +1353,9 @@ class DefaultClassInfoImpl
 	redef fun ancestors(recv, ret_type)
 	do
 		var mclass = self.mclass
-		var iter_mclass = v.compiler.get_mclass("RuntimeInfoIterator")
-		var mtype = iter_mclass.get_mtype([mclass.mclass_type])
-		var iter_constr = "NEW_{iter_mclass.c_name}"
-		var classinfo_constr = "NEW_{mclass.c_name}"
-
-		# We need the derived `RuntimeInfoIterator` type.
-		# NOTE: coupled with the separate compiler
-		v.require_declaration("type_{mtype.c_name}")
-
-		# We need the `ClassInfo` instance struct
-		v.require_declaration("instance_{mclass.c_name}")
-
-		# We need the iterator constructor
-		v.require_declaration(iter_constr)
-
-		# We also need the `ClassInfo` constructor
-		v.require_declaration(classinfo_constr)
-
-		var ancestor_table = "(const struct metainfo_t**)((struct instance_{mclass.c_name}*){recv})->classinfo->ancestors"
-		var classinfo_constr_ptr = "(val* (*)(void*))&{classinfo_constr}"
-		var res = v.new_expr("{iter_constr}({classinfo_constr_ptr}, {ancestor_table}, &type_{mtype.c_name})", ret_type)
-		v.ret(res)
+		#v.require_declaration("instance_{mclass.c_name}")
+		var iter = new_iter(recv, "{cast(recv)}->ancestors")
+		v.ret(v.autobox(iter, ret_type))
 	end
 
 	redef fun properties(recv, ret_type)
@@ -1317,12 +1366,13 @@ class DefaultClassInfoImpl
 
 	redef fun type_parameters(recv, ret_type)
 	do
-		v.require_declaration("instance_{mclass.c_name}")
-		var recv2 = cast(recv)
-		var len = v.new_expr("({recv2}->metatag >> 16) & 10", v.mmodule.int_type)
-		var nat = v.native_array_instance(mclass.mclass_type, len)
-		var i = v.get_name("i")
-		v.add_decl("int {i};")
+		# TODO
+		##v.require_declaration("instance_{mclass.c_name}")
+		##var recv2 = cast(recv)
+		##var len = v.new_expr("({recv2}->metatag >> 16) & 10", v.mmodule.int_type)
+		##var nat = v.native_array_instance(mclass.mclass_type, len)
+		##var i = v.get_name("i")
+		##v.add_decl("int {i};")
 	end
 
 	private fun get_class_kind(recv: RuntimeVariable): RuntimeVariable
@@ -1359,31 +1409,17 @@ class DefaultRtiIterImpl
 	redef fun next(recv)
 	do
 		v.add("{cast(recv)}->table++;")
-		v.add("{cast(recv)}->last_to_managed = NULL;")
 		v.add("goto {self.v.frame.returnlabel.as(not null)};")
 	end
 
 	redef fun is_ok(recv, ret_type)
 	do
-		v.require_declaration("instance_{mclass.c_name}")
 		v.ret(v.new_expr("*{cast(recv)}->table != NULL", ret_type))
 	end
 
 	redef fun item(recv, ret_type)
 	do
-		v.require_declaration("instance_{mclass.c_name}")
-		# If we already built a Nit object for the current table entry
-		v.add("if({cast(recv)}->last_to_managed != NULL) \{")
-		v.add("/* avoid duplicate allocations of the same runtime info*/")
-		var res1 = v.new_expr("{cast(recv)}->last_to_managed", ret_type)
-		v.ret(res1)
-		v.add("\} else \{")
-		var curr_entry = v.get_name("curr_entry")
-		var managed_val = v.get_name("managed_val")
-		v.add("void* {curr_entry} = (void*)*{cast(recv)}->table;")
-		var res2 = v.new_expr("{cast(recv)}->to_managed({curr_entry})", ret_type)
-		v.ret(res2)
-		v.add("\}")
+		v.ret(v.new_expr("(val*)*{cast(recv)}->table", ret_type))
 	end
 end
 
@@ -1393,37 +1429,33 @@ class DefaultRtiRepoImpl
 	redef fun object_type(target, ret_type)
 	do
 		var cc = v.compiler
-		var typeinfo= cc.get_mclass("TypeInfo")
 		var entry = v.get_name("entry")
 		v.require_declaration("type_table_entry_t")
 		v.require_declaration("typeinfo_table")
-		v.require_declaration("NEW_{typeinfo.c_name}")
 		v.add("struct type_table_entry_t* {entry} = typeinfo_table;")
 		v.add("for(; {entry}->type != NULL; {entry}++) \{")
 		v.add("if({entry}->type == ({target}->type)) \{ break; \} ")
 		v.add("\}")
-		v.add("if({entry}->type == NULL) \{")
-		v.add_abort("class not found")
+		v.add("if({entry}->type != NULL) \{")
+		v.ret(v.new_expr("(val*){entry}->typeinfo", ret_type))
 		v.add("\}")
-		v.ret(v.new_expr("NEW_{typeinfo.c_name}((const struct typeinfo_t*){entry}->typeinfo)", ret_type))
+		v.add_abort("type not found")
 	end
 
 	redef fun classof(target, ret_type)
 	do
 		var cc = v.compiler
-		var classinfo = cc.get_mclass("ClassInfo")
 		var entry = v.get_name("entry")
 		v.require_declaration("class_table_entry_t")
 		v.require_declaration("classinfo_table")
-		v.require_declaration("NEW_{classinfo.c_name}")
 		v.add("struct class_table_entry_t* {entry} = classinfo_table;")
 		v.add("for(; {entry}->class != NULL; {entry}++) \{")
 		v.add("if({entry}->class == ({target}->class)) \{ break; \} ")
 		v.add("\}")
-		v.add("if({entry}->class == NULL) \{")
-		v.add_abort("class not found")
+		v.add("if({entry}->class != NULL) \{")
+		v.ret(v.new_expr("(val*){entry}->classinfo", ret_type))
 		v.add("\}")
-		v.ret(v.new_expr("NEW_{classinfo.c_name}({entry}->classinfo)", ret_type))
+		v.add_abort("class not found")
 	end
 end
 
@@ -1433,19 +1465,14 @@ class DefaultTypeInfoImpl
 	redef fun klass(recv, ret_type)
 	do
 		var cc = v.compiler
-		var classinfo = cc.get_mclass("ClassInfo")
-		v.require_declaration("NEW_{classinfo.c_name}")
-		v.require_declaration("instance_{mclass.c_name}")
+		#v.require_declaration("instance_{mclass.c_name}")
 		var recv2 = cast(recv)
-		var inner  = v.get_name("inner")
-		v.add("const struct typeinfo_t* {inner} = {recv2}->typeinfo;")
-		var res = v.new_expr("NEW_{classinfo.c_name}({inner}->classinfo)", ret_type)
-		v.ret(res)
+		v.ret(v.new_expr("(val*){recv2}->classinfo", ret_type))
 	end
 
 	redef fun is_formal_type(recv, ret_type)
 	do
-		v.require_declaration("instance_{mclass.c_name}")
+		#v.require_declaration("instance_{mclass.c_name}")
 		var recv2 = cast(recv)
 		var res = v.new_expr("({recv2}->metatag & 3) == 2", ret_type)
 		v.ret(res)
@@ -1453,7 +1480,7 @@ class DefaultTypeInfoImpl
 
 	redef fun native_equal(recv, other, ret_type)
 	do
-		v.require_declaration("instance_{mclass.c_name}")
+		#v.require_declaration("instance_{mclass.c_name}")
 		var recv2 = cast(recv)
 		var other2 = cast(other)
 		var res = v.new_expr("{recv2}->typeinfo == {other2}->typeinfo)", ret_type)
@@ -1462,20 +1489,16 @@ class DefaultTypeInfoImpl
 
 	redef fun iza(recv, other, ret_type)
 	do
-		v.require_declaration("instance_{mclass.c_name}")
+		#v.require_declaration("instance_{mclass.c_name}")
 		var recv2 = cast(recv)
 		var other2 = cast(other)
-		var t1 = v.get_name("typeinfo")
-		var t2 = v.get_name("typeinfo")
-		v.add("const struct typeinfo_t* {t1} = {recv2}->typeinfo;")
-		v.add("const struct typeinfo_t* {t2} = {other2}->typeinfo;")
-		v.add("if(({t1}->metatag & 3) == 1 && ({t2}->metatag & 3) == 1) \{")
+		v.add("if(({recv2}->metatag & 3) == 1 && ({other2}->metatag & 3) == 1) \{")
 		var classtype1 = v.get_name("classtypeinfo")
 		var classtype2 = v.get_name("classtypeinfo")
 		v.add_decl("const struct type* {classtype1};")
-		v.add("{classtype1} = ((const struct classtypeinfo_t*){t1})->type;")
+		v.add("{classtype1} = ((const struct classtypeinfo_t*){recv2})->type;")
 		v.add_decl("const struct type* {classtype2};")
-		v.add("{classtype2} = ((const struct classtypeinfo_t*){t2})->type;")
+		v.add("{classtype2} = ((const struct classtypeinfo_t*){other2})->type;")
 		var res = v.isa_test(classtype1, classtype2)
 		v.ret(v.autobox(res, ret_type))
 		v.add("\} else \{")
@@ -1492,16 +1515,12 @@ class DefaultTypeInfoImpl
 	redef fun bound(recv, ret_type)
 	do
 		var recv2 = cast(recv)
-		var self_constr = "NEW_{mclass.c_name}"
-		v.require_declaration(self_constr)
-		v.require_declaration("instance_{mclass.c_name}")
+		#v.require_declaration("instance_{mclass.c_name}")
 		# If its a formal type
 		v.add("if({recv2}->metatag == 2) \{")
 		var formal_type = v.get_name("formal_type")
 		v.add_decl("const struct formaltypeinfo_t* {formal_type};")
-		v.add("{formal_type} = (const struct formaltypeinfo_t*){recv2}->typeinfo;")
-		var res = v.new_expr("{self_constr}((const struct metainfo_t*){formal_type})", ret_type)
-		v.ret(res)
+		# TODO
 		v.add("\}")
 		v.add_abort("only formal types have a bound")
 	end
