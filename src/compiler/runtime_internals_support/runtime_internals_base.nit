@@ -45,13 +45,13 @@ abstract class RuntimeInternalsFactory
 
 	fun model_saver(cc: SeparateCompiler): ModelSaver is abstract
 
-	fun classinfo_impl(v: AbstractCompilerVisitor): ClassInfoImpl is abstract
+	fun classinfo_impl(v: AbstractCompilerVisitor, recv: RuntimeVariable): ClassInfoImpl is abstract
 
-	fun typeinfo_impl(v: AbstractCompilerVisitor): TypeInfoImpl is abstract
+	fun typeinfo_impl(v: AbstractCompilerVisitor, recv: RuntimeVariable): TypeInfoImpl is abstract
 
-	fun rti_repo_impl(v: AbstractCompilerVisitor): RtiRepoImpl is abstract
+	fun rti_repo_impl(v: AbstractCompilerVisitor, recv: RuntimeVariable): RtiRepoImpl is abstract
 
-	fun rti_iter_impl(v: AbstractCompilerVisitor): RtiIterImpl is abstract
+	fun rti_iter_impl(v: AbstractCompilerVisitor, recv: RuntimeVariable): RtiIterImpl is abstract
 end
 
 abstract class RuntimeInfoImpl
@@ -63,76 +63,80 @@ abstract class RuntimeInfoImpl
 	# library.
 	var mclass: MClass is protected writable
 
+	# The receiver of the message
+	var recv: RuntimeVariable
+
+	# The return type of the method to compile if any.
+	# NOTE: unsafe field, may be not initialized.
+	var ret_type: MType is noinit, writable
+
 	# Compile the method `name` of `RuntimeInfo` interface.
-	fun name(recv: RuntimeVariable, ret_type: MType) is abstract
+	fun name is abstract
 end
 
 abstract class ClassInfoImpl
 	super RuntimeInfoImpl
 
 	# Compile the interned method `ClassInfo::ancestors`.
-	fun ancestors(recv: RuntimeVariable, ret_type: MType) is abstract
+	fun ancestors is abstract
 
 	# Compile the interned method `ClassInfo::properties`.
-	fun properties(recv: RuntimeVariable, ret_type: MType) is abstract
+	fun properties is abstract
 
 	# Compile the interned method `ClassInfo::type_parameters`.
-	fun type_parameters(recv: RuntimeVariable, ret_type: MType) is abstract
+	fun type_parameters is abstract
 
 	# Compile the interned method `ClassInfo::is_interface`.
-	fun is_interface(recv: RuntimeVariable, ret_type: MType) is abstract
+	fun is_interface is abstract
 
 	# Compile the interned method `ClassInfo::is_abstract`.
-	fun is_abstract(recv: RuntimeVariable, ret_type: MType) is abstract
+	fun is_abstract is abstract
 
 	# Compile the interned method `ClassInfo::is_universal`.
-	fun is_universal(recv: RuntimeVariable, ret_type: MType) is abstract
+	fun is_universal is abstract
 end
 
 abstract class TypeInfoImpl
 	super RuntimeInfoImpl
 	# Compile the interned method `TypeInfo::klass`.
-	fun klass(recv: RuntimeVariable, ret_type: MType) is abstract
+	fun klass is abstract
 
 	# Compile the interned method `TypeInfo::is_formal_type`.
-	fun is_formal_type(recv: RuntimeVariable, ret_type: MType) is abstract
+	fun is_formal_type is abstract
 
 	# Compile the interned method `TypeInfo::bound`.
-	fun bound(recv: RuntimeVariable, ret_type: MType) is abstract
+	fun bound is abstract
 
 	# Compile the interned method `TypeInfo::type_arguments`.
-	fun type_arguments(recv: RuntimeVariable, ret_type: MType) is abstract
+	fun type_arguments is abstract
 
 	# Compile the interned method `TypeInfo::iza`.
-	fun iza(recv: RuntimeVariable, other: RuntimeVariable, ret_type: MType)
-	is abstract
+	fun iza(other: RuntimeVariable) is abstract
 
 	# Compile the interned method `TypeInfo::native_equal`.
-	fun native_equal(recv: RuntimeVariable, other: RuntimeVariable, ret_type: MType)
-	is abstract
+	fun native_equal(other: RuntimeVariable) is abstract
 end
 
 abstract class RtiRepoImpl
 	super RuntimeInfoImpl
 
 	# Compile the interned method `RuntimeInternalsRepo::classof`.
-	fun classof(target: RuntimeVariable, ret_type: MType) is abstract
+	fun classof(target: RuntimeVariable) is abstract
 
 	# Compile the interned method `RuntimeInternalsRepo::object_type`.
 	#
 	# `target` : Represents the runtime object to extract the type
 	# information of.
-	fun object_type(target: RuntimeVariable, ret_type: MType)
+	fun object_type(target: RuntimeVariable)
 	is abstract
 
 end
 
 abstract class RtiIterImpl
 	super RuntimeInfoImpl
-
-	fun next(recv: RuntimeVariable) is abstract
-	fun is_ok(recv: RuntimeVariable, ret_type: MType) is abstract
-	fun item(recv: RuntimeVariable, ret_type: MType) is abstract
+	fun next is abstract
+	fun is_ok is abstract
+	fun item is abstract
 end
 
 # Base class for all meta info C struct provider.

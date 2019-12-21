@@ -66,12 +66,15 @@ class SeparateMetaCompilerVisitor
 
 	redef fun rti_repo_def(pname, ret_type, arguments)
 	do
-		var v = rti_factory.rti_repo_impl(self)
+		var v = rti_factory.rti_repo_impl(self, arguments[0])
+		if ret_type != null then
+			v.ret_type = ret_type
+		end
 		var res = true
 		if pname == "classof" then
-			v.classof(arguments[1], ret_type.as(not null))
+			v.classof(arguments[1])
 		else if pname == "object_type" then
-			v.object_type(arguments[1], ret_type.as(not null))
+			v.object_type(arguments[1])
 		else
 			res = false
 		end
@@ -80,12 +83,25 @@ class SeparateMetaCompilerVisitor
 
 	redef fun classinfo_def(pname, ret_type, arguments)
 	do
-		var v = rti_factory.classinfo_impl(self)
+		var v = rti_factory.classinfo_impl(self, arguments[0])
+		if ret_type != null then
+			v.ret_type = ret_type
+		end
 		var res = true
 		if pname == "name" then
-			v.name(arguments[0], ret_type.as(not null))
+			v.name
 		else if pname == "ancestors" then
-			v.ancestors(arguments[0], ret_type.as(not null))
+			v.ancestors
+		else if pname == "properties" then
+			v.properties
+		else if pname == "type_parameters" then
+			v.type_parameters
+		else if pname == "is_interface" then
+			v.is_interface
+		else if pname == "is_abstract" then
+			v.is_abstract
+		else if pname == "is_universal" then
+			v.is_universal
 		else
 			res = false
 		end
@@ -94,14 +110,17 @@ class SeparateMetaCompilerVisitor
 
 	redef fun rti_iter_def(pname, ret_type, arguments)
 	do
-		var v = rti_factory.rti_iter_impl(self)
+		var v = rti_factory.rti_iter_impl(self, arguments[0])
+		if ret_type != null then
+			v.ret_type = ret_type
+		end
 		var res = true
 		if pname == "next" then
-			v.next(arguments[0])
+			v.next
 		else if pname == "is_ok" then
-			v.is_ok(arguments[0], ret_type.as(not null))
+			v.is_ok
 		else if pname == "item" then
-			v.item(arguments[0], ret_type.as(not null))
+			v.item
 		else
 			res = false
 		end
@@ -110,14 +129,25 @@ class SeparateMetaCompilerVisitor
 
 	redef fun typeinfo_def(pname, ret_type, arguments)
 	do
-		var v = rti_factory.typeinfo_impl(self)
+		var v = rti_factory.typeinfo_impl(self, arguments[0])
+		if ret_type != null then
+			v.ret_type = ret_type
+		end
 		var res = true
 		if pname == "name" then
-			v.name(arguments[0], ret_type.as(not null))
+			v.name
 		else if pname == "klass" then
-			v.klass(arguments[0], ret_type.as(not null))
+			v.klass
 		else if pname == "iza" then
-			v.iza(arguments[0], arguments[1], ret_type.as(not null))
+			v.iza(arguments[1])
+		else if pname == "bound" then
+			v.bound
+		else if pname == "type_arguments" then
+			v.type_arguments
+		else if pname == "native_equal" then
+			v.native_equal(arguments[1])
+		else if pname == "is_formal_type" then
+			v.is_formal_type
 		else
 			res = false
 		end
@@ -136,17 +166,11 @@ class SeparateMetaCompiler
 	init
 	do
 		msp = rti_factory.meta_struct_provider(self)
-		#var classinfo = get_mclass("ClassInfo")
-		#var typeinfo = get_mclass("TypeInfo")
-		#var attrinfo = get_mclass("AttributeInfo")
-		#var methodinfo = get_mclass("MethodInfo")
-		#var vtypeinfo = get_mclass("VirtualTypeInfo")
-		#var rt_repo = get_mclass("RuntimeInternalsRepo")
-		#self.runtime_internals_mclasses = [classinfo, typeinfo, attrinfo, methodinfo, vtypeinfo, rt_repo]
 		var iterator_class = get_mclass("RuntimeInfoIterator")
 		var rta = self.runtime_type_analysis
 		if rta != null then
 			rta.live_classes.add(iterator_class)
+			# Build every iterator types
 			for mclass in self.rti_mclasses.values do
 				var mclass_type = mclass.mclass_type
 				rta.live_classes.add(mclass)
@@ -157,6 +181,16 @@ class SeparateMetaCompiler
 				rta.live_cast_types.add(itertype)
 			end
 		end
+
+		# Add `Array[TypeInfo]` since `ClassInfo::type_parameters` requires it.
+		var typeinfo = self.rti_mclasses["TypeInfo"].mclass_type
+		var arrayclass = mainmodule.array_class
+		var arraytype = arrayclass.get_mtype([typeinfo])
+		var nattype = mainmodule.native_array_type(typeinfo)
+		rta.live_classes.add(mainmodule.native_array_class)
+		rta.live_types.add(nattype)
+		rta.live_classes.add(arrayclass)
+		rta.live_types.add(arraytype)
 	end
 
 	redef fun new_visitor do return new SeparateMetaCompilerVisitor(self)

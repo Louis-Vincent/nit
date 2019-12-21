@@ -21,32 +21,32 @@ class DefaultRuntimeInternals
 		return new DefaultModelSaver(cc)
 	end
 
-	redef fun classinfo_impl(v)
+	redef fun classinfo_impl(v, recv)
 	do
 		var cc = v.compiler
 		var classinfo_mclass = cc.get_mclass("ClassInfo")
-		return new DefaultClassInfoImpl(v, classinfo_mclass)
+		return new DefaultClassInfoImpl(v, classinfo_mclass, recv)
 	end
 
-	redef fun typeinfo_impl(v)
+	redef fun typeinfo_impl(v, recv)
 	do
 		var cc = v.compiler
 		var typeinfo_mclass = cc.get_mclass("TypeInfo")
-		return new DefaultTypeInfoImpl(v, typeinfo_mclass)
+		return new DefaultTypeInfoImpl(v, typeinfo_mclass, recv)
 	end
 
-	redef fun rti_repo_impl(v)
+	redef fun rti_repo_impl(v, recv)
 	do
 		var cc = v.compiler
 		var rti_repo_mclass = cc.get_mclass("RuntimeInternalsRepo")
-		return new DefaultRtiRepoImpl(v, rti_repo_mclass)
+		return new DefaultRtiRepoImpl(v, rti_repo_mclass, recv)
 	end
 
-	redef fun rti_iter_impl(v)
+	redef fun rti_iter_impl(v, recv)
 	do
 		var cc = v.compiler
 		var rti_iter_mclass = cc.get_mclass("RuntimeInfoIterator")
-		return new DefaultRtiIterImpl(v, rti_iter_mclass)
+		return new DefaultRtiIterImpl(v, rti_iter_mclass, recv)
 	end
 end
 
@@ -889,10 +889,8 @@ redef class MClass
 		v.compiler.provide_declaration("ancestor_table_{self.c_name}", "extern {ancestor_table};")
 		if self.arity > 0 then
 			var mtypes_len = self.get_mtype_cache.values.length + 1
-			var param_table = "struct formaltypeinfo_t* paramtype_table_{self.c_name}[{arity + 1}]"
 			var type_table = "struct classtypeinfo_t* typeinfo_table_{self.c_name}[{mtypes_len}]"
 			v.compiler.provide_declaration("typeinfo_table_{self.c_name}", "extern {type_table};")
-			v.compiler.provide_declaration("paramtype_table_{self.c_name}", "extern {param_table};")
 		end
 	end
 
@@ -906,7 +904,6 @@ redef class MClass
 		if self.arity > 0 then
 			var mtypes = self.get_mtype_cache.values
 			v.require_declaration("typeinfo_table_{self.c_name}")
-			v.require_declaration("paramtype_table_{self.c_name}")
 		else
 			self.mclass_type.require(v)
 		end
@@ -978,7 +975,6 @@ redef class MClass
 		v.add_decl("\};")
 		save_ancestor_table(v)
 		save_type_table(v)
-		save_typeparam_table(v)
 	end
 
 	fun linearized_ancestors(mmodule: MModule): SequenceRead[MClass]
@@ -1006,19 +1002,6 @@ redef class MClass
 		v.add_decl("NULL") # NULL terminated sequence
 		v.add_decl("\};")
 
-	end
-
-	protected fun save_typeparam_table(v: AbstractCompilerVisitor)
-	do
-		if self.arity == 0 then return
-		var decl = "struct formaltypeinfo_t* paramtype_table_{c_name}[{mparameters.length + 1}]"
-		v.add_decl("{decl} = \{")
-		for mparam in mparameters do
-			var mq = mparam.to_meta_query(v.compiler.mainmodule)
-			v.add_decl("{mq.to_addr},")
-		end
-		v.add_decl("NULL")
-		v.add_decl("\};")
 	end
 
 	protected fun save_type_table(v: AbstractCompilerVisitor)
@@ -1290,7 +1273,7 @@ do
 end
 
 redef class RuntimeInfoImpl
-	redef fun name(recv: RuntimeVariable, ret_type: MType)
+	redef fun name
 	do
 		var c_name = self.mclass.c_name
 		var cstring_type = v.mmodule.c_string_type
@@ -1350,7 +1333,7 @@ end
 class DefaultClassInfoImpl
 	super ClassInfoImpl
 
-	redef fun ancestors(recv, ret_type)
+	redef fun ancestors
 	do
 		var mclass = self.mclass
 		#v.require_declaration("instance_{mclass.c_name}")
@@ -1358,24 +1341,42 @@ class DefaultClassInfoImpl
 		v.ret(v.autobox(iter, ret_type))
 	end
 
-	redef fun properties(recv, ret_type)
+	private fun arity: RuntimeVariable
 	do
 		var recv2 = cast(recv)
-		v.ret(v.autobox(self.new_iter(recv, "{recv2}->props"), ret_type))
+		return v.new_expr("({recv2}->metatag >> 3) & 7", v.mmodule.int_type)
 	end
 
-	redef fun type_parameters(recv, ret_type)
+	redef fun properties
 	do
-		# TODO
-		##v.require_declaration("instance_{mclass.c_name}")
-		##var recv2 = cast(recv)
-		##var len = v.new_expr("({recv2}->metatag >> 16) & 10", v.mmodule.int_type)
-		##var nat = v.native_array_instance(mclass.mclass_type, len)
-		##var i = v.get_name("i")
-		##v.add_decl("int {i};")
+		var recv2 = cast(recv)
+		# We need to add arity since we store type param first
+		v.ret(v.autobox(self.new_iter(recv, "{recv2}->props+{arity}"), ret_type))
 	end
 
-	private fun get_class_kind(recv: RuntimeVariable): RuntimeVariable
+	redef fun type_parameters
+	do
+		var recv2 = cast(recv)
+		var len = arity
+		var arrayclass = v.mmodule.array_class
+		var typeinfo = v.compiler.rti_mclasses["TypeInfo"].mclass_type
+		var arraytype = arrayclass.get_mtype([typeinfo])
+		var res = v.init_instance(arraytype)
+		var nclass = v.mmodule.native_array_class
+		var nat = v.native_array_instance(mclass.mclass_type, len)
+		var i = v.get_name("i")
+
+		v.add_decl("int {i};")
+		v.add("for({i}=0; {i} < {len}; {i}++) \{")
+		# Type parameters are registered first in the props table
+		var ith_mparamtype = "(val*)({recv2}->props[{i}])"
+		v.add("((struct instance_{nclass.c_name}*){nat})->values[{i}] = {ith_mparamtype};")
+		v.add("\}")
+		v.send(v.get_property("with_native", arraytype), [res, nat, len])
+		v.ret(v.autobox(res, ret_type))
+	end
+
+	private fun get_class_kind: RuntimeVariable
 	do
 		var recv2 = cast(recv)
 		var class_kind = v.get_name("class_kind")
@@ -1384,21 +1385,21 @@ class DefaultClassInfoImpl
 		return v.new_expr("{class_kind}", v.mmodule.int_type)
 	end
 
-	redef fun is_interface(recv, ret_type)
+	redef fun is_interface
 	do
-		var class_kind = get_class_kind(recv)
+		var class_kind = get_class_kind
 		v.ret(v.new_expr("{class_kind} == 2", ret_type))
 	end
 
-	redef fun is_abstract(recv, ret_type)
+	redef fun is_abstract
 	do
-		var class_kind = get_class_kind(recv)
+		var class_kind = get_class_kind
 		v.ret(v.new_expr("{class_kind} == 1", ret_type))
 	end
 
-	redef fun is_universal(recv, ret_type)
+	redef fun is_universal
 	do
-		var class_kind = get_class_kind(recv)
+		var class_kind = get_class_kind
 		v.ret(v.new_expr("{class_kind} == 3", ret_type))
 	end
 end
@@ -1406,18 +1407,18 @@ end
 class DefaultRtiIterImpl
 	super RtiIterImpl
 
-	redef fun next(recv)
+	redef fun next
 	do
 		v.add("{cast(recv)}->table++;")
 		v.add("goto {self.v.frame.returnlabel.as(not null)};")
 	end
 
-	redef fun is_ok(recv, ret_type)
+	redef fun is_ok
 	do
 		v.ret(v.new_expr("*{cast(recv)}->table != NULL", ret_type))
 	end
 
-	redef fun item(recv, ret_type)
+	redef fun item
 	do
 		v.ret(v.new_expr("(val*)*{cast(recv)}->table", ret_type))
 	end
@@ -1426,7 +1427,7 @@ end
 class DefaultRtiRepoImpl
 	super RtiRepoImpl
 
-	redef fun object_type(target, ret_type)
+	redef fun object_type(target)
 	do
 		var cc = v.compiler
 		var entry = v.get_name("entry")
@@ -1442,7 +1443,7 @@ class DefaultRtiRepoImpl
 		v.add_abort("type not found")
 	end
 
-	redef fun classof(target, ret_type)
+	redef fun classof(target)
 	do
 		var cc = v.compiler
 		var entry = v.get_name("entry")
@@ -1462,34 +1463,31 @@ end
 class DefaultTypeInfoImpl
 	super TypeInfoImpl
 
-	redef fun klass(recv, ret_type)
+	redef fun klass
 	do
 		var cc = v.compiler
-		#v.require_declaration("instance_{mclass.c_name}")
 		var recv2 = cast(recv)
 		v.ret(v.new_expr("(val*){recv2}->classinfo", ret_type))
 	end
 
-	redef fun is_formal_type(recv, ret_type)
+	redef fun is_formal_type
 	do
-		#v.require_declaration("instance_{mclass.c_name}")
 		var recv2 = cast(recv)
 		var res = v.new_expr("({recv2}->metatag & 3) == 2", ret_type)
 		v.ret(res)
 	end
 
-	redef fun native_equal(recv, other, ret_type)
+	redef fun native_equal(other)
 	do
-		#v.require_declaration("instance_{mclass.c_name}")
 		var recv2 = cast(recv)
 		var other2 = cast(other)
-		var res = v.new_expr("{recv2}->typeinfo == {other2}->typeinfo)", ret_type)
+		# TODO: remove this code if useless
+		var res = v.new_expr("{recv2} == {other2}", ret_type)
 		v.ret(res)
 	end
 
-	redef fun iza(recv, other, ret_type)
+	redef fun iza(other)
 	do
-		#v.require_declaration("instance_{mclass.c_name}")
 		var recv2 = cast(recv)
 		var other2 = cast(other)
 		v.add("if(({recv2}->metatag & 3) == 1 && ({other2}->metatag & 3) == 1) \{")
@@ -1506,21 +1504,19 @@ class DefaultTypeInfoImpl
 		v.add("\}")
 	end
 
-	redef fun type_arguments(recv, ret_type)
+	redef fun type_arguments
 	do
-		var recv2 = cast(recv)
+		var recv2 = "((struct classtypeinfo_t*){cast(recv)})"
 		v.ret(v.autobox(self.new_iter(recv, "{recv2}->targs"), ret_type))
 	end
 
-	redef fun bound(recv, ret_type)
+	redef fun bound
 	do
 		var recv2 = cast(recv)
-		#v.require_declaration("instance_{mclass.c_name}")
 		# If its a formal type
 		v.add("if({recv2}->metatag == 2) \{")
-		var formal_type = v.get_name("formal_type")
-		v.add_decl("const struct formaltypeinfo_t* {formal_type};")
-		# TODO
+		var res = v.new_expr("(val*)((struct formaltypeinfo_t*){recv2})->bound", ret_type)
+		v.ret(res)
 		v.add("\}")
 		v.add_abort("only formal types have a bound")
 	end
