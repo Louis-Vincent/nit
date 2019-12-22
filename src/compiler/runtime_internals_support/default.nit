@@ -108,14 +108,14 @@ class DefaultStructProvider
 		cc.header.add_decl("const struct classinfo_t* classinfo;")
 		cc.header.add_decl("const char* name;")
 		cc.header.add_decl("const struct type* type_ptr; // NULL if dead or static")
-		cc.header.add_decl("const struct typeinfo_t** resolution_table;")
-		cc.header.add_decl("const struct typeinfo_t* targs[];")
+		cc.header.add_decl("const struct typeinfo_t* resolution_table[];")
 		cc.header.add_decl("\};")
 
 		cc.header.add_decl("struct classinfo_t \{")
 		cc.header.add_decl("const struct type* type;")
 		cc.header.add_decl("const struct class* class;")
 		cc.header.add_decl("unsigned int metatag;")
+		cc.header.add_decl("int color;")
 		cc.header.add_decl("const struct class* class_ptr;")
 		#cc.header.add_decl("/* if `self` is not generic, then `typeinfo_table` points directly to its type*/")
 		# TODO: type table
@@ -245,6 +245,8 @@ abstract class SavableMEntity
 	fun to_addr: String do return "&{metainfo_uid}"
 	var is_saved: Bool = false is protected writable
 
+	fun pre_save(mainmodule: MModule) do end
+
 	fun save(v: SeparateCompilerVisitor)
 	is
 		expect(not self.is_saved)
@@ -321,9 +323,14 @@ class NullDependency
 	redef fun resolve_dependency(cc) do return null
 end
 
+abstract class DelayedDependency
+	super CompilationDependency
+end
+
 class SimpleDependency
 	super CompilationDependency
-	protected var savable: SavableMEntity
+	type SAVABLE: SavableMEntity
+	protected var savable: SAVABLE
 
 	redef fun is_out_of_date do return self.savable.is_saved
 
@@ -331,6 +338,7 @@ class SimpleDependency
 	do
 		if self.is_out_of_date then return null
 		var v = cc.new_visitor
+		savable.pre_save(cc.mainmodule)
 		savable.save(v)
 		var res = savable.dependencies
 		savable.is_saved = true
@@ -383,6 +391,11 @@ class DefaultModelSaver
 		var rta = cc.runtime_type_analysis
 		assert rta != null
 		var mmodule = cc.mainmodule
+
+		var poset = mmodule.flatten_mclass_hierarchy
+		var colorer = new POSetColorer[MClass]
+		colorer.colorize(poset)
+		var colors_mapping = colorer.colors
 		for mclass in model.mclasses do
 			# NOTE: temporal dependency, this is not the best solution,
 			# however it avoid many problem and verbose code if we globally
@@ -397,6 +410,7 @@ class DefaultModelSaver
 			mclass.main_mclassdef = def
 			mclass.main_ancestors = ancestors
 			mclass.main_mpropdefs = mpropdefs
+			mclass.color = colors_mapping[mclass]
 		end
 
 		for mtype in rta.live_types do
@@ -451,6 +465,18 @@ class DefaultModelSaver
 	end
 end
 
+# Comparator based on class color.
+private class ClassComparator
+	super Comparator
+	redef type COMPARED: MClass
+
+	redef fun compare(a,b)
+	do
+		return default_comparator.compare(a.color, b.color)
+	end
+
+end
+
 redef class MType
 	super SavableMEntity
 
@@ -459,7 +485,9 @@ redef class MType
 end
 
 redef class MClassType
+
 	redef fun meta_cstruct_type do return "struct classtypeinfo_t"
+
 	redef fun metainfo_uid do return "classtypeinfo_of_{self.c_name}"
 
 	redef fun metatag_value
@@ -477,28 +505,72 @@ redef class MClassType
 		mclass.require(v)
 		if not self.need_anchor and self.is_alive(cc) then
 			v.require_declaration("type_{self.c_name}")
-			v.require_declaration("resolution_table_{self.metainfo_uid}")
 		end
 		for mtype in self.arguments do
 			mtype.require(v)
 		end
-	end
-
-	redef fun provide_declaration(v)
-	do
-		super
-		var resolution_table = "const struct typeinfo_t* resolution_table_{self.metainfo_uid}[]"
-		v.compiler.provide_declaration("resolution_table_{self.metainfo_uid}", "extern {resolution_table};")
+		for targ in self.accessible_type_args do
+			targ.require(v)
+		end
 	end
 
 	redef fun dependencies
 	do
 		var deps = new AggregateDependencies
 		deps.add(mclass.to_dep)
-		for mtype in self.arguments do
-			deps.add(mtype.to_dep)
+		for targ in self.accessible_type_args do
+			deps.add(targ.to_dep)
 		end
 		return deps
+	end
+
+	redef fun pre_save(mainmodule)
+	do
+		cache_accessible_type_args(mainmodule)
+	end
+
+	private var sorted_ancestors_cache: nullable SequenceRead[MClass]
+
+	# Returns ancestors of `self.mclass`, including `self.mclass`, sorted by
+	# class color.
+	private fun sorted_ancestors: SequenceRead[MClass]
+	do
+		if sorted_ancestors_cache == null then
+			var comparator = new ClassComparator
+			# All ancestors including its own class
+			var ancestors = new Array[MClass]
+			ancestors.add_all(mclass.main_ancestors)
+			ancestors.unshift mclass
+			print ancestors.length
+			comparator.quick_sort(ancestors, 0, ancestors.length - 1)
+			sorted_ancestors_cache = ancestors
+		end
+		return sorted_ancestors_cache.as(not null)
+	end
+
+	private var accessible_type_args: SequenceRead[MType]
+
+	# Collects and resolves all accessible type parameter in a class hierarchy.
+	# Returns a `SequenceRead` ordered by class color
+	private fun cache_accessible_type_args(mmodule: MModule): SequenceRead[MType]
+	do
+		if not isset _accessible_type_args then
+			# NOTE: another temporal dependency since every living
+			# types depend on their accessible type arguments.
+			# To avoid adding a `MModule` param to `dependencies`
+			# method, we precompute the resolved dependency types.
+			var accessible_targs = new Array[MType]
+			for mclass in self.sorted_ancestors do
+				for mparam in mclass.mparameters do
+					var closed_type = mclass.mclass_type.anchor_to(mmodule, self)
+					for targ in closed_type.arguments do
+						accessible_targs.push(targ)
+					end
+				end
+			end
+			accessible_type_args = accessible_targs
+		end
+		return accessible_type_args
 	end
 
 	redef fun write_field_values_nullable(v)
@@ -511,9 +583,37 @@ redef class MClassType
 		generic_write_field_values(v, self)
 	end
 
+	private fun write_typeparam_resolution_table(v: AbstractCompilerVisitor)
+	do
+		if self.need_anchor then return
+		var first_color = sorted_ancestors.first.color
+		# We always write down the minimal color (offset).
+		v.add_decl("(const struct typeinfo_t*){first_color},")
+
+		var len = sorted_ancestors.length
+		var j = 0
+		for i in [0..len[ do
+			var mclass = sorted_ancestors[i]
+			var color = mclass.color
+			var k = i+1
+			var argsize = mclass.mparameters.length
+			for l in [j..argsize+j[ do
+				var targ = accessible_type_args[l]
+				v.add_decl("(const struct typeinfo_t*)&{targ.metainfo_uid},")
+			end
+			j += argsize
+			if i == len - 1 then continue
+			# Add some padding
+			var next_color = sorted_ancestors[k].color
+			var padding_len = next_color - color + argsize
+			for x_ in [0..padding_len[ do
+				v.add_decl("(const struct typeinfo_t*)-1,")
+			end
+		end
+	end
+
 	private fun generic_write_field_values(v: AbstractCompilerVisitor, this: MType)
 	do
-		var mmodule = v.compiler.mainmodule
 		var cc = v.compiler
 		var rti_mclass = cc.rti_mclasses["TypeInfo"]
 		v.add_decl("{this.full_metainfo_decl} = \{")
@@ -526,15 +626,11 @@ redef class MClassType
 		v.add_decl("\"{name_prefix}{self.name}\",")
 		if not this.need_anchor and this.is_alive(cc) then
 			v.add_decl("&type_{this.c_name},")
-			v.add_decl("(const struct typeinfo_t**)resolution_table_{self.metainfo_uid},")
 		else
 			v.add_decl("NULL, /*{this} is DEAD*/")
-			v.add_decl("NULL,") # resolution table
 		end
 		v.add_decl("\{")
-		for mtype in self.arguments do
-			v.add_decl("(const struct typeinfo_t*){mtype.to_addr},")
-		end
+		write_typeparam_resolution_table(v)
 		v.add_decl("NULL")
 		v.add_decl("\}")
 		v.add_decl("\};")
@@ -573,7 +669,6 @@ redef class MVirtualType
 
 	private fun generic_write_field_values(v: AbstractCompilerVisitor, this: MType)
 	do
-		var mmodule = v.compiler.mainmodule
 		var rti_mclass = v.compiler.rti_mclasses["TypeInfo"]
 
 		v.add_decl("{this.full_metainfo_decl} = \{")
@@ -610,7 +705,6 @@ redef class MParameterType
 
 	private fun generic_write_field_values(v: AbstractCompilerVisitor, this: MType)
 	do
-		var mmodule = v.compiler.mainmodule
 		var rti_mclass = v.compiler.rti_mclasses["TypeInfo"]
 
 		v.add_decl("{this.full_metainfo_decl} = \{")
@@ -635,6 +729,11 @@ redef class MParameterType
 end
 
 redef class MNullableType
+
+	redef fun pre_save(mainmodule)
+	do
+		mtype.pre_save(mainmodule)
+	end
 
 	redef fun metainfo_uid
 	do
@@ -674,6 +773,7 @@ end
 redef class MClass
 	super SavableMEntity
 
+	private var color: Int is noinit
 	private var main_mclassdef: MClassDef is noinit
 	private var main_mpropdefs: Collection[MPropDef] is noinit
 	private var main_ancestors: SequenceRead[MClass] is noinit
@@ -771,13 +871,13 @@ redef class MClass
 	do
 		var cc = v.compiler
 		var classinfo = cc.rti_mclasses["ClassInfo"]
-		var mmodule = cc.mainmodule
 
 		# The instance
 		v.add_decl("{full_metainfo_decl} = \{")
 		v.add_decl("&type_{classinfo.mclass_type.c_name},")
 		v.add_decl("&class_{classinfo.c_name},")
 		v.add_decl("{metatag_value},")
+		v.add_decl("{color},")
 		if self.is_alive(cc) then
 			v.add_decl("&class_{self.c_name},") # pointer to the reflected class
 		else
@@ -1327,7 +1427,8 @@ class DefaultTypeInfoImpl
 	redef fun type_arguments
 	do
 		var recv2 = "((struct classtypeinfo_t*){cast(recv)})"
-		v.ret(v.autobox(self.new_iter(recv, "{recv2}->targs"), ret_type))
+		# TODO
+		# v.ret(v.autobox(self.new_iter(recv, "{recv2}->targs"), ret_type))
 	end
 
 	redef fun bound

@@ -182,15 +182,15 @@ class SeparateMetaCompiler
 			end
 		end
 
-		# Add `Array[TypeInfo]` since `ClassInfo::type_parameters` requires it.
-		var typeinfo = self.rti_mclasses["TypeInfo"].mclass_type
-		var arrayclass = mainmodule.array_class
-		var arraytype = arrayclass.get_mtype([typeinfo])
-		var nattype = mainmodule.native_array_type(typeinfo)
-		rta.live_classes.add(mainmodule.native_array_class)
-		rta.live_types.add(nattype)
-		rta.live_classes.add(arrayclass)
-		rta.live_types.add(arraytype)
+		# TODO: Add `Array[TypeInfo]` since `ClassInfo::type_parameters` requires it.
+		#var typeinfo = self.rti_mclasses["TypeInfo"].mclass_type
+		#var arrayclass = mainmodule.array_class
+		#var arraytype = arrayclass.get_mtype([typeinfo])
+		#var nattype = mainmodule.native_array_type(typeinfo)
+		#rta.live_classes.add(mainmodule.native_array_class)
+		#rta.live_types.add(nattype)
+		#rta.live_classes.add(arrayclass)
+		#rta.live_types.add(arraytype)
 	end
 
 	redef fun new_visitor do return new SeparateMetaCompilerVisitor(self)
