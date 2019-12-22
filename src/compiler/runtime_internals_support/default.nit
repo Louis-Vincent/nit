@@ -8,6 +8,15 @@ redef class Sys
 	private var null_dependency = new NullDependency
 end
 
+# TODO: remove this code when PR is accepted
+redef class Comparator
+	redef fun quick_sort(array, from, to)
+	do
+		if from >= to then return
+		super
+	end
+end
+
 class DefaultRuntimeInternals
 	super RuntimeInternalsFactory
 
@@ -541,7 +550,6 @@ redef class MClassType
 			var ancestors = new Array[MClass]
 			ancestors.add_all(mclass.main_ancestors)
 			ancestors.unshift mclass
-			print ancestors.length
 			comparator.quick_sort(ancestors, 0, ancestors.length - 1)
 			sorted_ancestors_cache = ancestors
 		end
@@ -560,11 +568,13 @@ redef class MClassType
 			# To avoid adding a `MModule` param to `dependencies`
 			# method, we precompute the resolved dependency types.
 			var accessible_targs = new Array[MType]
-			for mclass in self.sorted_ancestors do
-				for mparam in mclass.mparameters do
-					var closed_type = mclass.mclass_type.anchor_to(mmodule, self)
-					for targ in closed_type.arguments do
-						accessible_targs.push(targ)
+			if not need_anchor then
+				for mclass in self.sorted_ancestors do
+					for mparam in mclass.mparameters do
+						var closed_type = mclass.mclass_type.anchor_to(mmodule, self)
+						for targ in closed_type.arguments do
+							accessible_targs.push(targ)
+						end
 					end
 				end
 			end
@@ -588,7 +598,15 @@ redef class MClassType
 		if self.need_anchor then return
 		var first_color = sorted_ancestors.first.color
 		# We always write down the minimal color (offset).
-		v.add_decl("(const struct typeinfo_t*){first_color},")
+		# If the color is -1, it means we have no formal type
+		# to resolve
+		if accessible_type_args.length > 0 then
+			v.add_decl("(const struct typeinfo_t*){first_color},")
+		else
+			# No type arguments => no resolution table
+			v.add_decl("(const struct typeinfo_t*)-1,")
+			return
+		end
 
 		var len = sorted_ancestors.length
 		var j = 0
