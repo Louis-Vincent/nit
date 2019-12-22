@@ -516,7 +516,7 @@ class ClassInfo
 			var ty = v.rti_repo.from_mtype(mparam)
 			res.push(ty)
 		end
-		return v.array_instance(res, v.type_type)
+		return new InstanceIterator[TypeInfo](v.type_iterator_type, res.iterator)
 	end
 end
 
@@ -681,7 +681,7 @@ class TypeInfo
 			var ty = rti_repo.from_mtype(arg)
 			types.push(ty)
 		end
-		return v.array_instance(types, v.type_type)
+		return new InstanceIterator[TypeInfo](v.type_iterator_type, types.iterator)
 	end
 
 	protected fun as_not_null(v: NaiveInterpreter): TypeInfo
@@ -888,7 +888,7 @@ class MethodInfo
 			var mtype = mparam.mtype
 			res.push(v.rti_repo.from_mtype(mtype))
 		end
-		return v.array_instance(res, v.type_type)
+		return new InstanceIterator[TypeInfo](v.type_iterator_type, res.iterator)
 	end
 
 	protected fun dyn_return_type(v: NaiveInterpreter, recv_type: Instance): nullable Instance
@@ -930,7 +930,7 @@ class MethodInfo
 			var ty = v.rti_repo.from_mtype(mtype)
 			res.push(ty)
 		end
-		return v.array_instance(res, v.type_type)
+		return new InstanceIterator[TypeInfo](v.type_iterator_type, res.iterator)
 	end
 
 	fun call(v: NaiveInterpreter, args: SequenceRead[Instance]): nullable Instance

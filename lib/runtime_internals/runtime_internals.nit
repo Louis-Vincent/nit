@@ -57,7 +57,7 @@ universal ClassInfo
 	fun is_interface: Bool is intern
 	fun is_abstract: Bool is intern
 	fun is_universal: Bool is intern
-	fun type_parameters: SequenceRead[TypeInfo] is intern
+	fun type_parameters: Iterator[TypeInfo] is intern
 
 	fun is_stdclass: Bool
 	do
@@ -66,7 +66,7 @@ universal ClassInfo
 
 	fun is_generic: Bool
 	do
-		return type_parameters.length > 0
+		return type_parameters.to_a.length > 0
 	end
 
 	redef fun name is intern
@@ -87,7 +87,7 @@ universal TypeInfo
 	# The bound (might be F-bounded) of a formal type
 	fun bound: TypeInfo is intern, expect(is_formal_type)
 
-	fun type_arguments: SequenceRead[TypeInfo] is intern
+	fun type_arguments: Iterator[TypeInfo] is intern
 
 	# Determines if `self` isa `other`, ie if `self` is a subtype of `other`.
 	#
@@ -198,12 +198,12 @@ universal MethodInfo
 	fun return_type: nullable TypeInfo is intern
 
 	# Returns the static type of each parameters
-	fun parameter_types: SequenceRead[TypeInfo] is intern
+	fun parameter_types: Iterator[TypeInfo] is intern
 
 	fun dyn_return_type(recv_type: TypeInfo): nullable TypeInfo
 	is intern, expect(is_proper_receiver_type(recv_type))
 
-	fun dyn_parameter_types(recv_type: TypeInfo): SequenceRead[TypeInfo]
+	fun dyn_parameter_types(recv_type: TypeInfo): Iterator[TypeInfo]
 	is intern, expect(is_proper_receiver_type(recv_type))
 
 	# Sends the message to `args[0]` (the receiver)

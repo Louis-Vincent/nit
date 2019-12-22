@@ -296,7 +296,7 @@ assert attr_p1 isa AttributeInfo
 
 var x = rti_repo.get_classinfo("Object").as(not null).unbound_type
 var y = x.as_nullable
-var z = cK.type_parameters[0].bound
+var z = (cK.type_parameters.to_a)[0].bound
 assert y == z
 var temp = attr_p1.klass.bound_type
 print attr_p1.dyn_type(tK_Int).name
@@ -328,22 +328,22 @@ var method_bar = get_prop("bar", cE).as(MethodInfo)
 var method_baz = get_prop("baz", cE).as(MethodInfo)
 var method_bad = get_prop("bad", cE).as(MethodInfo)
 
-print method_foo.parameter_types # [T1]
+print method_foo.parameter_types.to_a # [T1]
 print method_foo.return_type or else "" # T2
-print method_bar.parameter_types # [Int]
+print method_bar.parameter_types.to_a # [Int]
 print method_bar.return_type or else "" # Int
-print method_baz.parameter_types # [T2]
+print method_baz.parameter_types.to_a # [T2]
 print method_baz.return_type or else "" # D
-print method_bad.parameter_types # [D]
+print method_bad.parameter_types.to_a # [D]
 print method_bad.return_type or else "" # [T1]
 
 print method_foo.dyn_return_type(tE_Int_String).as(not null) # String
 print method_bar.dyn_return_type(tE_Int_String).as(not null) # Int
 print method_baz.dyn_return_type(tE_Int_String).as(not null) # D
 
-print method_foo.dyn_parameter_types(tE_Int_String) # [Int]
-print method_bar.dyn_parameter_types(tE_Int_String) # [Int]
-print method_baz.dyn_parameter_types(tE_Int_String) # [String]
+print method_foo.dyn_parameter_types(tE_Int_String).to_a # [Int]
+print method_bar.dyn_parameter_types(tE_Int_String).to_a # [Int]
+print method_baz.dyn_parameter_types(tE_Int_String).to_a # [String]
 
 # Tests for super declarations for `ClassInfo`
 
@@ -352,14 +352,14 @@ print cZ1.super_decls.to_a
 var cK2 = rti_repo.get_classinfo("K2").as(not null)
 var cM = rti_repo.get_classinfo("M").as(not null)
 
-var first_tparam = cM.type_parameters[0] # formal type
+var first_tparam = (cM.type_parameters.to_a)[0] # formal type
 assert first_tparam.is_formal_type
 var superdecls = cM.super_decls.to_a
 assert superdecls.length == 2 # K[Int], K2[E]
 var k_super_decl = superdecls[0] # K[Int]
 var k2_super_decl = superdecls[1] # K2[E]
 # Type parameter must persist through super declarations.
-assert k2_super_decl.type_arguments[0] == first_tparam
+assert (k2_super_decl.type_arguments.to_a)[0] == first_tparam
 
 # Tests for nullable type
 
