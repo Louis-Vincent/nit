@@ -20,3 +20,9 @@ for tp in b_class.type_parameters do
 	print tp.bound.name
 end
 
+var t1 = m.object_type(b1)
+print t1.name
+
+for ta in t1.type_arguments do
+	print ta.name
+end

@@ -617,16 +617,9 @@ redef class MClassType
 	do
 		if self.need_anchor then return
 		var first_color = sorted_ancestors.first.color
+
 		# We always write down the minimal color (offset).
-		# If the color is -1, it means we have no formal type
-		# to resolve
-		if accessible_type_args.length > 0 then
-			v.add_decl("(const struct typeinfo_t*){first_color},")
-		else
-			# No type arguments => no resolution table
-			v.add_decl("(const struct typeinfo_t*)-1,")
-			return
-		end
+		v.add_decl("(const struct typeinfo_t*){first_color},")
 
 		var len = sorted_ancestors.length
 		var j = 0
@@ -1370,7 +1363,8 @@ class DefaultRtiIterImpl
 
 	redef fun is_ok
 	do
-		v.ret(v.new_expr("*{cast(recv)}->table != NULL", ret_type))
+		var recv2 = cast(recv)
+		v.ret(v.new_expr("*{recv2}->table != NULL && {recv2}->table != {recv2}->limit", ret_type))
 	end
 
 	redef fun item
@@ -1462,8 +1456,21 @@ class DefaultTypeInfoImpl
 	redef fun type_arguments
 	do
 		var recv2 = "((struct classtypeinfo_t*){cast(recv)})"
-		# TODO
-		#var iter = v.ret(v.autobox(self.new_iter(recv, "{recv2}->targs"), ret_type))
+		var classinfo = v.get_name("classinfo")
+		var arity = "(({recv2}->metatag >> 5) & 127)"
+		v.add_decl("const struct classinfo_t* {classinfo};")
+		v.add("{classinfo} = {recv2}->classinfo;")
+		var color = v.new_expr("{classinfo}->color", v.mmodule.int_type)
+		var offset = v.new_expr("(long){recv2}->resolution_table", v.mmodule.int_type)
+
+		# Where we start iterating
+		var position = "({recv2}->resolution_table + {offset} + {color})"
+		# Where we end iterating.
+		var limit_addr = "({position} + {arity})"
+		var iter_mclass = v.compiler.get_mclass("RuntimeInfoIterator")
+		var iter = new_iter(mclass.mclass_type, position)
+		v.add("((struct instance_{iter_mclass.c_name}*){iter})->limit = {limit_addr};")
+		v.ret(v.autobox(iter, ret_type))
 	end
 
 	redef fun bound
