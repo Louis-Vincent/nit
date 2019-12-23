@@ -254,8 +254,6 @@ abstract class SavableMEntity
 	fun to_addr: String do return "&{metainfo_uid}"
 	var is_saved: Bool = false is protected writable
 
-	fun pre_save(mainmodule: MModule) do end
-
 	fun save(v: SeparateCompilerVisitor)
 	is
 		expect(not self.is_saved)
@@ -332,10 +330,6 @@ class NullDependency
 	redef fun resolve_dependency(cc) do return null
 end
 
-abstract class DelayedDependency
-	super CompilationDependency
-end
-
 class SimpleDependency
 	super CompilationDependency
 	type SAVABLE: SavableMEntity
@@ -347,11 +341,44 @@ class SimpleDependency
 	do
 		if self.is_out_of_date then return null
 		var v = cc.new_visitor
-		savable.pre_save(cc.mainmodule)
 		savable.save(v)
 		var res = savable.dependencies
 		savable.is_saved = true
 		return res
+	end
+end
+
+# Precompute meta information about an `MClassType` before saving.
+class MClassTypeDependency
+	super SimpleDependency
+	redef type SAVABLE: MClassType
+
+	redef fun resolve_dependency(cc)
+	do
+		var mtype = self.savable
+		mtype.cache_accessible_type_args(cc.mainmodule)
+		return super
+	end
+end
+
+# Precompute any meta information of the proxied type before saving.
+# NOTE: this is somewhat ugly but necessary to properly persist a nullable a
+# nullable type.
+# NOTE: there's a misaligned view between the Nit model and the compiled binary.
+# In the Nit model Null types are proxies, in the compiled images they are their
+# own type. During the model persistence, we must shortcut every part of the
+# pickling process to make sure null types are properly saved.
+class MNullableTypeDependency
+	super SimpleDependency
+	redef type SAVABLE: MNullableType
+
+	redef fun resolve_dependency(cc)
+	do
+		var proxied = self.savable.mtype
+		if proxied isa MClassType then
+			proxied.cache_accessible_type_args(cc.mainmodule)
+		end
+		return super
 	end
 end
 
@@ -423,8 +450,7 @@ class DefaultModelSaver
 		end
 
 		for mtype in rta.live_types do
-			var dep = new SimpleDependency(mtype)
-			deps.add(dep)
+			deps.add(mtype.to_dep)
 		end
 
 		while not deps.is_empty do
@@ -523,6 +549,11 @@ redef class MClassType
 		end
 	end
 
+	redef fun to_dep
+	do
+		return new MClassTypeDependency(self)
+	end
+
 	redef fun dependencies
 	do
 		var deps = new AggregateDependencies
@@ -531,11 +562,6 @@ redef class MClassType
 			deps.add(targ.to_dep)
 		end
 		return deps
-	end
-
-	redef fun pre_save(mainmodule)
-	do
-		cache_accessible_type_args(mainmodule)
 	end
 
 	private var sorted_ancestors_cache: nullable SequenceRead[MClass]
@@ -562,25 +588,19 @@ redef class MClassType
 	# Returns a `SequenceRead` ordered by class color
 	private fun cache_accessible_type_args(mmodule: MModule): SequenceRead[MType]
 	do
-		if not isset _accessible_type_args then
-			# NOTE: another temporal dependency since every living
-			# types depend on their accessible type arguments.
-			# To avoid adding a `MModule` param to `dependencies`
-			# method, we precompute the resolved dependency types.
-			var accessible_targs = new Array[MType]
-			if not need_anchor then
-				for mclass in self.sorted_ancestors do
-					for mparam in mclass.mparameters do
-						var closed_type = mclass.mclass_type.anchor_to(mmodule, self)
-						for targ in closed_type.arguments do
-							accessible_targs.push(targ)
-						end
+		var accessible_targs = new Array[MType]
+		if not need_anchor then
+			for mclass in self.sorted_ancestors do
+				for mparam in mclass.mparameters do
+					var closed_type = mclass.mclass_type.anchor_to(mmodule, self)
+					for targ in closed_type.arguments do
+						accessible_targs.push(targ)
 					end
 				end
 			end
-			accessible_type_args = accessible_targs
 		end
-		return accessible_type_args
+		self.accessible_type_args = accessible_targs
+		return self.accessible_type_args
 	end
 
 	redef fun write_field_values_nullable(v)
@@ -695,12 +715,10 @@ redef class MVirtualType
 		v.add_decl("{this.metatag_value},")
 		v.add_decl("{mclass.to_addr},")
 		v.add_decl("\"{self.name}\",")
-		# TODO: static bound
 		v.add_decl("\};")
 	end
 
 	redef fun requirements(v)
-		#vtypedef.static_bound.require(v)
 	do
 		mclass.require(v)
 	end
@@ -748,14 +766,14 @@ end
 
 redef class MNullableType
 
-	redef fun pre_save(mainmodule)
-	do
-		mtype.pre_save(mainmodule)
-	end
-
 	redef fun metainfo_uid
 	do
 		return "{self.mtype.metainfo_uid}_nullable"
+	end
+
+	redef fun to_dep
+	do
+		return new MNullableTypeDependency(self)
 	end
 
 	redef fun metatag_value
@@ -882,6 +900,10 @@ redef class MClass
 		raw_deps.add_all(main_mpropdefs)
 		raw_deps.add_all(main_ancestors)
 		raw_deps.add_all(mparameters)
+		for mparam in self.mparameters do
+			var bound_mtype = main_mclassdef.bound_mtype
+			raw_deps.add(bound_mtype.arguments[mparam.rank])
+		end
 		return raw_deps
 	end
 
@@ -914,11 +936,16 @@ redef class MClass
 
 		# Save properties info
 		v.add_decl("\{")
-		# Type parameters are registered first
+		# Type parameters and their static bound are registered first
 		for mparam in self.mparameters do
 			v.add_decl("(struct propinfo_t*){mparam.to_addr},")
+			var bound_mtype = main_mclassdef.bound_mtype
+			v.add_decl("(struct propinfo_t*){bound_mtype.arguments[mparam.rank].to_addr},")
 		end
-		# Then we save properties
+		# Marks the end of type parameter declaration
+		v.add_decl("NULL,")
+
+		# finally we save properties
 		for mpropdef in main_mpropdefs do
 			# NOTE: the function `most_specific_mpropdefs` always return
 			# a sequence where the first element are virtual types
@@ -1250,12 +1277,12 @@ redef class RuntimeInfoImpl
 	end
 
 	# Generates C code that instantiate a new `RuntimeInfoIterator`
-	# paramaterized by `mclass.mclass_type`.
-	private fun new_iter(recv: RuntimeVariable, table_addr: String): RuntimeVariable
+	# paramaterized by `eltype.`.
+	private fun new_iter(eltype: MType, table_addr: String): RuntimeVariable
 	do
-		var recv2 = cast(recv)
+		assert not eltype.need_anchor
 		var iter_mclass = v.compiler.get_mclass("RuntimeInfoIterator")
-		var mtype = iter_mclass.get_mtype([mclass.mclass_type])
+		var mtype = iter_mclass.get_mtype([eltype])
 		var iter_constr = "NEW_{iter_mclass.c_name}"
 		v.require_declaration("type_{mtype.c_name}")
 		v.require_declaration(iter_constr)
@@ -1275,7 +1302,7 @@ class DefaultClassInfoImpl
 	do
 		var mclass = self.mclass
 		#v.require_declaration("instance_{mclass.c_name}")
-		var iter = new_iter(recv, "{cast(recv)}->ancestors")
+		var iter = new_iter(mclass.mclass_type, "{cast(recv)}->ancestors")
 		v.ret(v.autobox(iter, ret_type))
 	end
 
@@ -1289,7 +1316,7 @@ class DefaultClassInfoImpl
 	do
 		var recv2 = cast(recv)
 		# We need to add arity since we store type param first
-		v.ret(v.autobox(self.new_iter(recv, "{recv2}->props+{arity}"), ret_type))
+		v.ret(v.autobox(self.new_iter(mclass.mclass_type, "{recv2}->props+(2*{arity}+1)"), ret_type))
 	end
 
 	redef fun type_parameters
@@ -1298,20 +1325,10 @@ class DefaultClassInfoImpl
 		var len = arity
 		var arrayclass = v.mmodule.array_class
 		var typeinfo = v.compiler.rti_mclasses["TypeInfo"].mclass_type
-		var arraytype = arrayclass.get_mtype([typeinfo])
-		var res = v.init_instance(arraytype)
-		var nclass = v.mmodule.native_array_class
-		var nat = v.native_array_instance(mclass.mclass_type, len)
-		var i = v.get_name("i")
-
-		v.add_decl("int {i};")
-		v.add("for({i}=0; {i} < {len}; {i}++) \{")
-		# Type parameters are registered first in the props table
-		var ith_mparamtype = "(val*)({recv2}->props[{i}])"
-		v.add("((struct instance_{nclass.c_name}*){nat})->values[{i}] = {ith_mparamtype};")
-		v.add("\}")
-		v.send(v.get_property("with_native", arraytype), [res, nat, len])
-		v.ret(v.autobox(res, ret_type))
+		var iter = new_iter(typeinfo, "{recv2}->props")
+		var iter_mclass = v.compiler.get_mclass("RuntimeInfoIterator")
+		v.add("((struct instance_{iter_mclass.c_name}*){iter})->step_size = 2;")
+		v.ret(v.autobox(iter, ret_type))
 	end
 
 	private fun get_class_kind: RuntimeVariable
@@ -1347,7 +1364,7 @@ class DefaultRtiIterImpl
 
 	redef fun next
 	do
-		v.add("{cast(recv)}->table++;")
+		v.add("{cast(recv)}->table += {cast(recv)}->step_size;")
 		v.add("goto {self.v.frame.returnlabel.as(not null)};")
 	end
 
@@ -1446,20 +1463,30 @@ class DefaultTypeInfoImpl
 	do
 		var recv2 = "((struct classtypeinfo_t*){cast(recv)})"
 		# TODO
-		# v.ret(v.autobox(self.new_iter(recv, "{recv2}->targs"), ret_type))
+		#var iter = v.ret(v.autobox(self.new_iter(recv, "{recv2}->targs"), ret_type))
 	end
 
 	redef fun bound
 	do
 		var recv2 = cast(recv)
-		v.add_abort("TODO")
 		# FIXME : persist bound of formaltype
 		# If its a formal type
-		#v.add("if({recv2}->metatag == 2) \{")
-		#var res = v.new_expr("(val*)((struct formaltypeinfo_t*){recv2})->bound", ret_type)
-		#v.ret(res)
-		#v.add("\}")
-		#v.add_abort("only formal types have a bound")
+		v.add("if({recv2}->metatag == 2) \{")
+		var rank = v.new_expr("({recv2}->metatag >> 4) & 127", v.mmodule.int_type)
+		recv2 = "((struct formaltypeinfo_t*){recv2})"
+		var classinfo = v.get_name("classinfo")
+		v.add_decl("const struct classinfo_t* {classinfo} = {recv2}->classinfo;")
+		# We add 1 since type parameters and their static bound are next
+		# to eachother in the props table, eg:
+		#	0		1		2		3
+		# [(type_param1, static_bound1), (type_param2, static_bound2), ..., NULL, <property list>]
+		#
+		# Type parameter rank start at 0, to get the static bound of the ith
+		# rank => 2 * ith_rank + 1 (always an odd number)
+		var res = v.new_expr("(val*){classinfo}->props[2*{rank}+1]", ret_type)
+		v.ret(res)
+		v.add("\}")
+		v.add_abort("only formal types have a bound")
 	end
 end
 

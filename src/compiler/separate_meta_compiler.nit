@@ -271,6 +271,7 @@ class SeparateMetaCompiler
 			self.header.add_decl("const struct type* type;")
                         self.header.add_decl("const struct class* class;")
                         self.header.add_decl("const struct metainfo_t** table;")
+			self.header.add_decl("unsigned long step_size; // default=1")
                         self.header.add_decl("\};")
 			self.provide_declaration("instance_{c_name}", "struct instance_{c_name};")
 			self.provide_declaration("NEW_{c_name}", "{mtype.ctype} NEW_{c_name}(const struct metainfo_t** table, const struct type* type);")
@@ -286,6 +287,7 @@ class SeparateMetaCompiler
 			v.add("{recv}->type = type;")
 			hardening_live_type(v, "type")
                         v.add("{recv}->table = table;")
+			v.add("{recv}->step_size = 1;")
 			v.add("return (val*){recv};")
 			v.add("\}")
 			return true
