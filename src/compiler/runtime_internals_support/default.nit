@@ -622,24 +622,34 @@ redef class MClassType
 		v.add_decl("(const struct typeinfo_t*){first_color},")
 
 		var len = sorted_ancestors.length
-		var j = 0
+		var max_color = sorted_ancestors.last.color
+		var acc = 0
+		var end_of_table = new Array[String]
 		for i in [0..len[ do
 			var mclass = sorted_ancestors[i]
 			var color = mclass.color
-			var k = i+1
 			var argsize = mclass.mparameters.length
-			for l in [j..argsize+j[ do
-				var targ = accessible_type_args[l]
-				v.add_decl("(const struct typeinfo_t*)&{targ.metainfo_uid},")
+			if argsize == 0 then
+				# No generic for this class
+				v.add_decl("(const struct typeinfo_t*)-1,")
+			else
+				v.add_decl("(const struct typeinfo_t*){acc + max_color + 2},")
 			end
-			j += argsize
+			for l in [acc..argsize+acc[ do
+				var targ = accessible_type_args[l]
+				end_of_table.push("(const struct typeinfo_t*)&{targ.metainfo_uid}")
+			end
+			acc += argsize
 			if i == len - 1 then continue
 			# Add some padding
-			var next_color = sorted_ancestors[k].color
-			var padding_len = next_color - color + argsize
+			var next_color = sorted_ancestors[i+1].color
+			var padding_len = next_color - color - 1
 			for x_ in [0..padding_len[ do
 				v.add_decl("(const struct typeinfo_t*)-1,")
 			end
+		end
+		for entry in end_of_table do
+			v.add_decl("{entry},")
 		end
 	end
 
@@ -1364,7 +1374,10 @@ class DefaultRtiIterImpl
 	redef fun is_ok
 	do
 		var recv2 = cast(recv)
-		v.ret(v.new_expr("*{recv2}->table != NULL && {recv2}->table != {recv2}->limit", ret_type))
+		var table_not_null = "{recv2}->table != NULL"
+		var not_end_of_table= "*{recv2}->table != NULL"
+		var table_neq_limit = "{recv2}->table != {recv2}->limit"
+		v.ret(v.new_expr("{table_not_null} && {not_end_of_table} && {table_neq_limit}", ret_type))
 	end
 
 	redef fun item
@@ -1458,18 +1471,32 @@ class DefaultTypeInfoImpl
 		var recv2 = "((struct classtypeinfo_t*){cast(recv)})"
 		var classinfo = v.get_name("classinfo")
 		var arity = "(({recv2}->metatag >> 5) & 127)"
+		v.add("if({arity} == 0) \{")
+		v.ret(v.autobox(new_iter(mclass.mclass_type, "NULL"), ret_type))
+		v.add("\}")
+		var position = v.get_name("position")
+		var limit = v.get_name("limit")
+		v.add_decl("long {position};")
+		v.add_decl("void* {limit};")
 		v.add_decl("const struct classinfo_t* {classinfo};")
 		v.add("{classinfo} = {recv2}->classinfo;")
 		var color = v.new_expr("{classinfo}->color", v.mmodule.int_type)
-		var offset = v.new_expr("(long){recv2}->resolution_table", v.mmodule.int_type)
 
-		# Where we start iterating
-		var position = "({recv2}->resolution_table + {offset} + {color})"
+		var offset = v.new_expr("(long)*({recv2}->resolution_table)", v.mmodule.int_type)
+		# The offset is at the start of the table.
+		# The offset = the smallest color number in the table
+		# the first entry is at : resolution_table[offset + 1], we add one
+		# for the `offset` entry itself, eg:
+		#
+		# [offset=4][color1 value]<padding 0..n>[color2 value]...[last_color]<type_arguments>
+		#
+		# Where to look for our first type argument value <=> resolution_table[color(i) - offset + 1]
+		v.add("{position} = (long)*({recv2}->resolution_table + {color} - {offset} + 1);")
+		v.add("{limit} = {recv2}->resolution_table + {position} + {arity};")
 		# Where we end iterating.
-		var limit_addr = "({position} + {arity})"
 		var iter_mclass = v.compiler.get_mclass("RuntimeInfoIterator")
-		var iter = new_iter(mclass.mclass_type, position)
-		v.add("((struct instance_{iter_mclass.c_name}*){iter})->limit = {limit_addr};")
+		var iter = new_iter(mclass.mclass_type, "{recv2}->resolution_table + {position}")
+		v.add("((struct instance_{iter_mclass.c_name}*){iter})->limit = {limit};")
 		v.ret(v.autobox(iter, ret_type))
 	end
 

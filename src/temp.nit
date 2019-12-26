@@ -21,8 +21,15 @@ for tp in b_class.type_parameters do
 end
 
 var t1 = m.object_type(b1)
+var t2 = m.object_type(a1)
 print t1.name
+print t2.name
 
 for ta in t1.type_arguments do
+	print ta.name
+end
+
+for ta in t2.type_arguments do
+	# Not supposed to have any
 	print ta.name
 end
