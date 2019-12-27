@@ -47,12 +47,14 @@ redef class ModelBuilder
 end
 
 redef class AbstractCompilerVisitor
-	fun rti_repo_def(pname: String, ret_type: nullable MType, arguments: Array[RuntimeVariable]): Bool do return false
-	fun classinfo_def(pname: String, ret_type: nullable MType, arguments: Array[RuntimeVariable]): Bool do return false
-
-	fun rti_iter_def(pname: String, ret_type: nullable MType, arguments: Array[RuntimeVariable]): Bool do return false
-
-	fun typeinfo_def(pname: String, ret_type: nullable MType, arguments: Array[RuntimeVariable]): Bool do return false
+	fun rti_repo_def(pname: String, ret_type: nullable MType, arguments: SequenceRead[RuntimeVariable]): Bool do return false
+	fun classinfo_def(pname: String, ret_type: nullable MType, arguments: SequenceRead[RuntimeVariable]): Bool do return false
+	fun rti_iter_def(pname: String, ret_type: nullable MType, arguments: SequenceRead[RuntimeVariable]): Bool do return false
+	fun typeinfo_def(pname: String, ret_type: nullable MType, arguments: SequenceRead[RuntimeVariable]): Bool do return false
+	fun propinfo_def(pname: String, ret_type: nullable MType, arguments: SequenceRead[RuntimeVariable]): Bool do return false
+	fun attrinfo_def(pname: String, ret_type: nullable MType, arguments: SequenceRead[RuntimeVariable]): Bool do return false
+	fun methodinfo_def(pname: String, ret_type: nullable MType, arguments: SequenceRead[RuntimeVariable]): Bool do return false
+	fun vtypeinfo_def(pname: String, ret_type: nullable MType, arguments: SequenceRead[RuntimeVariable]): Bool do return false
 end
 
 class SeparateMetaCompilerVisitor
@@ -153,6 +155,63 @@ class SeparateMetaCompilerVisitor
 		end
 		return res
 	end
+
+	redef fun propinfo_def(pname, ret_type, arguments)
+	do
+		var v = rti_factory.propinfo_impl(self, arguments[0])
+		if ret_type != null then
+			v.ret_type = ret_type
+		end
+		var res = true
+		if pname == "name" then
+			v.name
+		else if pname == "klass" then
+			v.klass
+		else if pname == "is_public" then
+			v.is_public
+		else if pname == "is_private" then
+			v.is_private
+		else if pname == "is_protected" then
+			v.is_protected
+		else if pname == "is_abstract" then
+			v.is_abstract
+		else if pname == "is_intern" then
+			v.is_intern
+		else if pname == "is_extern" then
+			v.is_extern
+		else
+			res = false
+		end
+		return res
+	end
+
+	redef fun attrinfo_def(pname, ret_type, arguments)
+	do
+		var v = rti_factory.attrinfo_impl(self, arguments[0])
+		if ret_type != null then
+			v.ret_type = ret_type
+		end
+		return false
+	end
+
+	redef fun methodinfo_def(pname, ret_type, arguments)
+	do
+		var v = rti_factory.methodinfo_impl(self, arguments[0])
+		if ret_type != null then
+			v.ret_type = ret_type
+		end
+		return false
+	end
+
+	redef fun vtypeinfo_def(pname, ret_type, arguments)
+	do
+		var v = rti_factory.vtypeinfo_impl(self, arguments[0])
+		if ret_type != null then
+			v.ret_type = ret_type
+		end
+		return false
+	end
+
 end
 
 class SeparateMetaCompiler
@@ -348,6 +407,14 @@ redef class AMethPropdef
 			v.rti_iter_def(pname, ret, arguments)
 		else if cname == "TypeInfo" then
 			v.typeinfo_def(pname, ret, arguments)
+		else if cname == "AttributeInfo" then
+			v.attrinfo_def(pname, ret, arguments)
+		else if cname == "MethodInfo" then
+			v.methodinfo_def(pname, ret, arguments)
+		else if cname == "VirtualTypeInfo" then
+			v.vtypeinfo_def(pname, ret, arguments)
+		else if cname == "PropertyInfo" then
+			v.propinfo_def(pname, ret, arguments)
 		end
 
 		return super

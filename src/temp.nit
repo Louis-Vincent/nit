@@ -2,6 +2,8 @@ import runtime_internals
 
 class A
 	var x: Int
+
+	fun toto is abstract
 end
 
 class B[T1,T2]
@@ -32,4 +34,9 @@ end
 for ta in t2.type_arguments do
 	# Not supposed to have any
 	print ta.name
+end
+
+for prop in m.classof(a1).properties do
+	print prop.name
+	print "public?: {prop.is_public}, private?: {prop.is_private}, abstract?: {prop.is_abstract}, intern?: {prop.is_intern}, extern?: {prop.is_extern}"
 end

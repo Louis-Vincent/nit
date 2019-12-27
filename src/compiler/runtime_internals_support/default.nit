@@ -44,6 +44,34 @@ class DefaultRuntimeInternals
 		return new DefaultTypeInfoImpl(v, typeinfo_mclass, recv)
 	end
 
+	redef fun propinfo_impl(v, recv)
+	do
+		var cc = v.compiler
+		var mclass = cc.get_mclass("PropertyInfo")
+		return new DefaultPropInfoImpl(v, mclass, recv)
+	end
+
+	redef fun attrinfo_impl(v, recv)
+	do
+		var cc = v.compiler
+		var mclass = cc.get_mclass("AttributeInfo")
+		return new DefaultAttrInfoImpl(v, mclass, recv)
+	end
+
+	redef fun methodinfo_impl(v, recv)
+	do
+		var cc = v.compiler
+		var mclass = cc.get_mclass("MethodInfo")
+		return new DefaultMethodInfoImpl(v, mclass, recv)
+	end
+
+	redef fun vtypeinfo_impl(v, recv)
+	do
+		var cc = v.compiler
+		var mclass = cc.get_mclass("VirtualTypeInfo")
+		return new DefaultVTypeInfoImpl(v, mclass, recv)
+	end
+
 	redef fun rti_repo_impl(v, recv)
 	do
 		var cc = v.compiler
@@ -1273,6 +1301,8 @@ redef class RuntimeInfoImpl
 			metatype = "typeinfo_t"
 		else if mclass.name == "RuntimeInfoIterator" then
 			metatype = "instance_{mclass.c_name}"
+		else if mclass.name == "PropertyInfo" then
+			metatype = "propinfo_t"
 		else
 			abort
 		end
@@ -1312,7 +1342,7 @@ class DefaultClassInfoImpl
 	private fun arity: RuntimeVariable
 	do
 		var recv2 = cast(recv)
-		return v.new_expr("({recv2}->metatag >> 3) & 7", v.mmodule.int_type)
+		return v.new_expr("({recv2}->metatag >> 3) & 127", v.mmodule.int_type)
 	end
 
 	redef fun properties
@@ -1339,7 +1369,7 @@ class DefaultClassInfoImpl
 		var recv2 = cast(recv)
 		var class_kind = v.get_name("class_kind")
 		v.add_decl("int {class_kind};")
-		v.add("{class_kind} = ({recv2}->metatag >> 10) & 3;")
+		v.add("{class_kind} = ({recv2}->metatag >> 10) & 7;")
 		return v.new_expr("{class_kind}", v.mmodule.int_type)
 	end
 
@@ -1427,7 +1457,6 @@ class DefaultTypeInfoImpl
 
 	redef fun klass
 	do
-		var cc = v.compiler
 		var recv2 = cast(recv)
 		v.ret(v.new_expr("(val*){recv2}->classinfo", ret_type))
 	end
@@ -1524,3 +1553,71 @@ class DefaultTypeInfoImpl
 	end
 end
 
+class DefaultPropInfoImpl
+	super PropertyInfoImpl
+	redef fun klass
+	do
+		var recv2 = cast(recv)
+		v.ret(v.new_expr("(val*){recv2}->classinfo", ret_type))
+	end
+
+	protected fun visibility: RuntimeVariable
+	do
+		var recv2 = cast(recv)
+		var visibility = v.get_name("visibility")
+		v.add_decl("long {visibility};")
+		v.add("{visibility}=({recv2}->metatag >> 3) & 3;")
+		return v.new_expr("{visibility}", v.mmodule.int_type)
+	end
+
+	protected fun qualifier: RuntimeVariable
+	do
+		var recv2 = cast(recv)
+		var qualifier = v.get_name("qualifier")
+		v.add_decl("long {qualifier};")
+		v.add("{qualifier}=({recv2}->metatag >> 5) & 3;")
+		return v.new_expr("{qualifier}", v.mmodule.int_type)
+	end
+
+	redef fun is_public
+	do
+		v.ret(v.new_expr("{visibility} == 1", ret_type))
+	end
+
+	redef fun is_protected
+	do
+		v.ret(v.new_expr("{visibility} == 2", ret_type))
+	end
+
+	redef fun is_private
+	do
+		v.ret(v.new_expr("{visibility} == 3", ret_type))
+	end
+
+	redef fun is_abstract
+	do
+		v.ret(v.new_expr("{qualifier} == 1", ret_type))
+	end
+
+	redef fun is_intern
+	do
+		v.ret(v.new_expr("{qualifier} == 2", ret_type))
+	end
+
+	redef fun is_extern
+	do
+		v.ret(v.new_expr("{qualifier} == 3", ret_type))
+	end
+end
+
+class DefaultAttrInfoImpl
+	super AttributeInfoImpl
+end
+
+class DefaultMethodInfoImpl
+	super MethodInfoImpl
+end
+
+class DefaultVTypeInfoImpl
+	super VirtualTypeInfoImpl
+end

@@ -49,6 +49,14 @@ abstract class RuntimeInternalsFactory
 
 	fun typeinfo_impl(v: AbstractCompilerVisitor, recv: RuntimeVariable): TypeInfoImpl is abstract
 
+	fun propinfo_impl(v: AbstractCompilerVisitor, recv: RuntimeVariable): PropertyInfoImpl is abstract
+
+	fun attrinfo_impl(v: AbstractCompilerVisitor, recv: RuntimeVariable): AttributeInfoImpl is abstract
+
+	fun methodinfo_impl(v: AbstractCompilerVisitor, recv: RuntimeVariable): MethodInfoImpl is abstract
+
+	fun vtypeinfo_impl(v: AbstractCompilerVisitor, recv: RuntimeVariable): VirtualTypeInfoImpl is abstract
+
 	fun rti_repo_impl(v: AbstractCompilerVisitor, recv: RuntimeVariable): RtiRepoImpl is abstract
 
 	fun rti_iter_impl(v: AbstractCompilerVisitor, recv: RuntimeVariable): RtiIterImpl is abstract
@@ -70,60 +78,134 @@ abstract class RuntimeInfoImpl
 	# NOTE: unsafe field, may be not initialized.
 	var ret_type: MType is noinit, writable
 
-	# Compile the method `name` of `RuntimeInfo` interface.
+	# Compiles the method `name` of `RuntimeInfo` interface.
 	fun name is abstract
 end
 
+# Commun class for `MethodInfoImpl`, `AttributeInfoImpl` and `VirtualTypeInfoImpl`.
+# Provides commun implementation for all `runtime_internals::PropertyInfo` classes.
+abstract class PropertyInfoImpl
+	super RuntimeInfoImpl
+
+	# Compiles the method `PropertyInfo::klass`.
+	fun klass is abstract
+
+	# Compiles the method `PropertyInfo::is_public`.
+	fun is_public is abstract
+
+	# Compiles the method `PropertyInfo::is_private`.
+	fun is_private is abstract
+
+	# Compiles the method `PropertyInfo::is_protected`.
+	fun is_protected is abstract
+
+	# Compiles the method `PropertyInfo::is_abstract`.
+	fun is_abstract is abstract
+
+	# Compiles the method `PropertyInfo::is_intern`.
+	fun is_intern is abstract
+
+	# Compiles the method `PropertyInfo::is_extern`
+	fun is_extern is abstract
+end
+
+# Base class for all implementations of `runtime_internals::AttributeInfo` class.
+abstract class AttributeInfoImpl
+	super RuntimeInfoImpl
+	# Compiles the interned method `AttributeInfo::dyn_type`.
+	fun dyn_type is abstract
+
+	# Compiles the interned method `AttributeInfo::static_type`.
+	fun static_type is abstract
+
+	# Compiles the interned method `AttributeInfo::value`.
+	fun value is abstract
+end
+
+# Base class for all implementations of `runtime_internals::MethodInfo` class.
+abstract class MethodInfoImpl
+	super RuntimeInfoImpl
+
+	# Compiles the interned method `MethodInfo::return_type`.
+	fun return_type is abstract
+
+	# Compiles the interned method `Merth::parameter_types`.
+	fun parameter_types is abstract
+
+	# Compiles the interned method `MethodInfo::dyn_return_type`.
+	fun dyn_return_type is abstract
+
+	# Compiles the interned method `MethodInfo::dyn_parameter_types`.
+	fun dyn_parameter_types is abstract
+
+	# Compiles the interned method `MethodInfo::call`.
+	fun call is abstract
+end
+
+# Base class for all implementations of `runtime_internals::VirtualTypeInfo` class.
+abstract class VirtualTypeInfoImpl
+	super RuntimeInfoImpl
+
+	# Compiles the interned method `VirtualTypeInfo::static_bound`
+	fun static_bound is abstract
+
+	# Compiles the interned method `VirtualTypeInfo::dyn_type`
+	fun dyn_bound is abstract
+end
+
+# Base class for all implementations of `runtime_internals::ClassInfo` class.
 abstract class ClassInfoImpl
 	super RuntimeInfoImpl
 
-	# Compile the interned method `ClassInfo::ancestors`.
+	# Compiles the interned method `ClassInfo::ancestors`.
 	fun ancestors is abstract
 
-	# Compile the interned method `ClassInfo::properties`.
+	# Compiles the interned method `ClassInfo::properties`.
 	fun properties is abstract
 
-	# Compile the interned method `ClassInfo::type_parameters`.
+	# Compiles the interned method `ClassInfo::type_parameters`.
 	fun type_parameters is abstract
 
-	# Compile the interned method `ClassInfo::is_interface`.
+	# Compiles the interned method `ClassInfo::is_interface`.
 	fun is_interface is abstract
 
-	# Compile the interned method `ClassInfo::is_abstract`.
+	# Compiles the interned method `ClassInfo::is_abstract`.
 	fun is_abstract is abstract
 
-	# Compile the interned method `ClassInfo::is_universal`.
+	# Compiles the interned method `ClassInfo::is_universal`.
 	fun is_universal is abstract
 end
 
+# Base class for all implementations of `runtime_internals::TypeInfo` class.
 abstract class TypeInfoImpl
 	super RuntimeInfoImpl
-	# Compile the interned method `TypeInfo::klass`.
+	# Compiles the interned method `TypeInfo::klass`.
 	fun klass is abstract
 
-	# Compile the interned method `TypeInfo::is_formal_type`.
+	# Compiles the interned method `TypeInfo::is_formal_type`.
 	fun is_formal_type is abstract
 
-	# Compile the interned method `TypeInfo::bound`.
+	# Compiles the interned method `TypeInfo::bound`.
 	fun bound is abstract
 
-	# Compile the interned method `TypeInfo::type_arguments`.
+	# Compiles the interned method `TypeInfo::type_arguments`.
 	fun type_arguments is abstract
 
-	# Compile the interned method `TypeInfo::iza`.
+	# Compiles the interned method `TypeInfo::iza`.
 	fun iza(other: RuntimeVariable) is abstract
 
-	# Compile the interned method `TypeInfo::native_equal`.
+	# Compiles the interned method `TypeInfo::native_equal`.
 	fun native_equal(other: RuntimeVariable) is abstract
 end
 
+# Base class for all implementations of `runtime_internals::RtiRepo` class.
 abstract class RtiRepoImpl
 	super RuntimeInfoImpl
 
-	# Compile the interned method `RuntimeInternalsRepo::classof`.
+	# Compiles the interned method `RuntimeInternalsRepo::classof`.
 	fun classof(target: RuntimeVariable) is abstract
 
-	# Compile the interned method `RuntimeInternalsRepo::object_type`.
+	# Compiles the interned method `RuntimeInternalsRepo::object_type`.
 	#
 	# `target` : Represents the runtime object to extract the type
 	# information of.
@@ -132,10 +214,17 @@ abstract class RtiRepoImpl
 
 end
 
+# Base class for all implementations of `runtime_internals::RuntimeInfoIterator` class.
 abstract class RtiIterImpl
 	super RuntimeInfoImpl
+
+	# Compiles the interned method `RuntimeInfoIterator::next`.
 	fun next is abstract
+
+	# Compiles the interned method `RuntimeInfoIterator::is_ok`.
 	fun is_ok is abstract
+
+	# Compiles the interned method `RuntimeInfoIterator::item`.
 	fun item is abstract
 end
 
